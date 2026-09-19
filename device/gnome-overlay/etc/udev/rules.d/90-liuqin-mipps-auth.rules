@@ -1,0 +1,10 @@
+# Trigger Xiaomi MiPPS/PPS charger authentication after USB-C partner attach or
+# USB power becoming available through an already-attached dock.
+#
+# The long-running work is delegated to systemd; udev only schedules the oneshot
+# service.  /usr/local/libexec/liuqin-mipps-auth does no charger I/O on the udev
+# path, it only records state and calls systemctl, so it returns immediately.
+
+ACTION=="add", SUBSYSTEM=="typec", KERNEL=="port*-partner", TAG+="systemd", ENV{SYSTEMD_WANTS}+="liuqin-mipps-auth.service"
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="qcom-battmgr-usb", ENV{POWER_SUPPLY_ONLINE}=="1", RUN+="/usr/local/libexec/liuqin-mipps-auth --usb-online-trigger"
+ACTION=="change", SUBSYSTEM=="power_supply", KERNEL=="qcom-battmgr-usb", ENV{POWER_SUPPLY_ONLINE}=="0", RUN+="/usr/local/libexec/liuqin-mipps-auth --clear-notification"

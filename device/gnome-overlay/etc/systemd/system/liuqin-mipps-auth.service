@@ -1,0 +1,10 @@
+[Unit]
+Description=LiUQIN MiPPS/PPS charger authentication
+Documentation=file:/usr/share/doc/liuqin-device-support/FASTCHARGE.md
+ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/request_vdm_cmd
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -n -E 0 /run/liuqin-mipps-auth.lock \
+          /usr/local/libexec/liuqin-mipps-auth --timeout 4 --no-data-role-swap
+TimeoutStartSec=20
