@@ -1,0 +1,7 @@
+{
+  "src/file_storage.c": "21100663d22ca8836aef7c315eb6b25484b023bb22afa3ea01aa66b88fd1f535",
+  "src/file_storage.h": "2f4bb9509f221dfb90ac3533835bd560ca90830d8b8933f30b0c1ac36133a466",
+  "src/device.c": "4b0e878d726b70503123126e7bc7ccda9e1f2dc25f3c94235f8e9c77bd4901da",
+  "meson.build": "48ba17f2013ae334ec46cc6704f0d3de7e9c247eb23d6923419f467ab50cc4e0",
+  "COPYING": "cd5c66af63b509ccd75ec85fee41b6e5cbb77cd6bf9392a54900acc0f02be4a6"
+}

@@ -1,0 +1,84 @@
+name: FPC1264 userspace build
+on:
+  push:
+    paths:
+      - device/fingerprint/oem/**
+      - tools/build-liuqin-fingerprint-oem.sh
+      - .github/workflows/fingerprint.yml
+  pull_request:
+    paths:
+      - device/fingerprint/oem/**
+      - tools/build-liuqin-fingerprint-oem.sh
+      - .github/workflows/fingerprint.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  clients:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Source syntax and cross-compiler dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libc6-dev-arm64-cross python3
+          python3 - <<'PY'
+          import ast, subprocess
+          from pathlib import Path
+          root = Path('device/fingerprint/oem')
+          for path in root.rglob('*.py'):
+              ast.parse(path.read_text(), filename=str(path))
+          for path in root.rglob('*.sh'):
+              subprocess.run(['bash', '-n', str(path)], check=True)
+          subprocess.run(['sh', '-n', 'tools/build-liuqin-fingerprint-oem.sh'], check=True)
+          PY
+      - name: Compile FPC, Gatekeeper and authenticated UFS provider
+        run: sh tools/build-liuqin-fingerprint-oem.sh clients
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpc1264-clients-${{ github.sha }}
+          path: out/fingerprint-oem/clients/
+          retention-days: 14
+  native:
+    runs-on: ubuntu-26.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Native ABI and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpam0g-dev libssl-dev libfprint-2-dev libfprint-2-tod-dev libglib2.0-dev libpolkit-gobject-1-dev libsystemd-dev meson ninja-build pkg-config gettext dbus python3
+          pkg-config --modversion libfprint-2 libfprint-2-tod-1 gio-2.0
+      - name: Fetch pinned fprintd original source
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, pathlib, tarfile, urllib.request
+          lock = json.load(open('device/fingerprint/oem/SOURCE_LOCK.json'))['fprintd']
+          out = pathlib.Path('out/fprintd-upstream')
+          out.mkdir(parents=True)
+          archive = out / 'fprintd.orig.tar.bz2'
+          urllib.request.urlretrieve(lock['source_url'], archive)
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == lock['orig_sha256']
+          with tarfile.open(archive) as source:
+              source.extractall(out, filter='data')
+          PY
+      - name: Compile TOD, PAM helper and adapted fprintd
+        env:
+          FPRINTD_SOURCE: ${{ github.workspace }}/out/fprintd-upstream/fprintd-v1.94.5
+        run: sh tools/build-liuqin-fingerprint-oem.sh native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fpc1264-native-${{ github.sha }}
+          path: |
+            out/fingerprint-oem/libfprint-tod-fpc1264-oem.so
+            out/fingerprint-oem/fpc-oem-print
+            out/fingerprint-oem/pam-input
+            out/fingerprint-oem/fprintd
+            out/fingerprint-oem/fprintd-vendor.tar.gz
+            out/fingerprint-oem/fprintd-oem-update.patch
+          retention-days: 14

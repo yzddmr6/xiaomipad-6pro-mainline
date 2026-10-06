@@ -1,0 +1,14 @@
+[Unit]
+Description=Liuqin stable FPC1264 module after desktop and SSH
+After=gdm.service ssh.service NetworkManager.service iio-sensor-proxy.service
+Wants=gdm.service ssh.service NetworkManager.service iio-sensor-proxy.service
+ConditionPathExists=/dev/tee0
+ConditionPathExists=/sys/bus/spi/devices/spi1.0/of_node
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/liuqin-fpc-oem/stable_module.py
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

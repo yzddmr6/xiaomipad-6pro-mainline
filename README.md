@@ -58,6 +58,7 @@ and device trees; other batches, capacities and accessory combinations are not i
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
+| Fingerprint | FPC1264 / OEM TA / libfprint TOD | 🟡 Partial | Single-finger enrolment, persistent matching and GNOME unlock verified on the recorded temporary support boot; placement sensitivity and stutter remain. Optional integration: [Fingerprint](docs/FINGERPRINT.md) |
 
 ### Wireless and USB
 

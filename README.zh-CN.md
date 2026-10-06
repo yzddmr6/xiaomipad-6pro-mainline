@@ -57,6 +57,7 @@
 | 磁吸键盘 | Nanosic WN8030 | ✅ 可用 | 普通按键、音量键、触摸板与重新吸附输入；挂起后恢复未完整覆盖 |
 | 手写笔 | NVTCapacitivePen 输入接口 | 🧪 未验证 | 坐标、压感、按键及唤醒后的笔输入未实测 |
 | 霍尔开关 | GPIO / SW_LID / SW_TABLET_MODE | 🟡 部分支持 | 开关状态可读取；保护套合盖、打开唤醒的整机策略未完整验收 |
+| 指纹 | FPC1264 / 原厂 TA / libfprint TOD | 🟡 部分支持 | 已记录临时支持 boot 上的单指录入、持久匹配和 GNOME 解锁；位置敏感与卡顿仍存在。显式可选集成见[指纹组件](docs/FINGERPRINT.zh-CN.md) |
 
 ### 无线与 USB
 
