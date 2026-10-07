@@ -105,6 +105,9 @@ def main():
     if interface == "fprintd" and (candidate.get("deployment_mode") != "installed" or
             "native_enrol.py" not in updates or "deployment/60-liuqin-fingerprint-enroll.rules" not in updates):
         raise RuntimeError("Native enrollment requires its provider, policy and installed startup mode")
+    if interface == "fprintd":
+        candidate["native_user_setup"] = "gnome-settings-polkit"
+        candidate["credential_creation"] = "authorized_enrollment_only; writes Gatekeeper/RPMB state"
     candidate.update(schema=1, id="liuqin-fpc-oem-candidate-20261002-v1", native_uid=(0x60000000 if interface == "fprintd" else 0x50000000) | candidate["linux_uid"],
                      program_path="/usr/local/lib/liuqin-fpc-oem", supports_one_finger_per_user=True,
                      actual_biometric_acceptance="pending", partition_writes=0,
