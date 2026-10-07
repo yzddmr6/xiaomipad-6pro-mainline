@@ -49,6 +49,9 @@ def main():
     compiler = shutil.which(cross + 'gcc')
     if not compiler:
         parser.error('install the AArch64 cross compiler or set CROSS_COMPILE')
+    # Kconfig records the invoked compiler name in CC_VERSION_TEXT. Use the
+    # versioned executable consistently during configuration and compilation.
+    compiler = str(Path(compiler).resolve())
     fragments = [project / path for path in lock['config_fragments']]
     identity = {
         'source': str(source), 'commit': lock['commit'],
@@ -85,7 +88,7 @@ def main():
                     'KCFLAGS', 'KAFLAGS', 'KCPPFLAGS', 'LDFLAGS_vmlinux'):
             env.pop(key, None)
         # The locked GCC configuration does not use Rust; ignore host Rust installs.
-        make = ['make', '-C', str(source), 'O=' + str(out), 'RUSTC=false']
+        make = ['make', '-C', str(source), 'O=' + str(out), 'RUSTC=false', 'CC=' + compiler]
         subprocess.run(make + ['defconfig'], env=env, check=True)
         subprocess.run(['sh', str(source / 'scripts/kconfig/merge_config.sh'),
                         '-m', '-O', str(out), str(out / '.config'),
