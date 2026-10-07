@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -162,6 +164,31 @@ def rebuild_firmware(out_dir: Path, topology: Path, wlan_tuple: Path) -> None:
                    cwd=PROJECT, env=env, check=True)
 
 
+def fingerprint_build_input() -> Path:
+    """Use the public, reviewed binary/source input; it contains no OEM TA."""
+    spec = importlib.util.spec_from_file_location(
+        'fingerprint_deb', PROJECT / 'tools/build-liuqin-fingerprint-deb.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    candidate = Path(os.environ.get('FINGERPRINT_BUNDLE',
+        PROJECT / 'tools/local/downloads/fingerprint/v0.6.0/fingerprint-build-inputs.tar.gz'))
+    if not candidate.exists():
+        if 'FINGERPRINT_BUNDLE' in os.environ:
+            raise SystemExit(f'FINGERPRINT_BUNDLE is missing: {candidate}')
+        candidate.parent.mkdir(parents=True, exist_ok=True)
+        url = ('https://github.com/yzddmr6/xiaomipad-6pro-mainline/releases/download/'
+               'v0.6.0/fingerprint-build-inputs.tar.gz')
+        temporary = candidate.with_suffix('.download')
+        urllib.request.urlretrieve(url, temporary)
+        if sha256_file(temporary) != module.BUNDLE_SHA256:
+            temporary.unlink()
+            raise SystemExit('Fingerprint build-input download checksum mismatch')
+        temporary.rename(candidate)
+    if sha256_file(candidate) != module.BUNDLE_SHA256:
+        raise SystemExit('Fingerprint build-input checksum mismatch')
+    return candidate.resolve()
+
+
 # --- main --------------------------------------------------------------------
 
 def gather() -> dict:
@@ -243,6 +270,7 @@ def cmd_run() -> None:
         'POWER_SETTINGS_MANIFEST': str(settings_manifest),
         'BUSYBOX': str(PROJECT / 'tools/local/busybox-arm64/usr/bin/busybox'),
         'MKBOOTIMG_DIR': str(PROJECT / 'tools/local/aosp-mkbootimg'),
+        'FINGERPRINT_BUNDLE': str(fingerprint_build_input()),
     }
     for key, value in inputs.items():
         if not key.endswith('_SHA256') and not Path(value).exists():

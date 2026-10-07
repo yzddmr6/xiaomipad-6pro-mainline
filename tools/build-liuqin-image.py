@@ -55,8 +55,8 @@ INPUTS = {
     'WLAN_HSP2_TUPLE', 'STOCK_OVERLAY_DIR', 'STOCK_BASE_DIR',
     'SENSOR_STACK_TAR', 'SENSOR_STACK_SHA256', 'POWER_SETTINGS_BINARY',
     'POWER_SETTINGS_MANIFEST', 'BUSYBOX', 'MKBOOTIMG_DIR',
+    'FINGERPRINT_BUNDLE',
 }
-OPTIONAL_INPUTS = {'FINGERPRINT_BUNDLE'}
 
 
 def main():
@@ -77,10 +77,8 @@ def main():
     if args.device_tested and args.stage != 'release-assets':
         parser.error('--device-tested is only valid with --stage release-assets')
     supplied = json.loads(args.inputs.read_text())
-    if (not INPUTS <= set(supplied) or set(supplied) - INPUTS - OPTIONAL_INPUTS or
-            not all(isinstance(v, str) and v for v in supplied.values())):
-        parser.error('Required input keys: ' + ', '.join(sorted(INPUTS)) +
-                     '; optional: ' + ', '.join(sorted(OPTIONAL_INPUTS)))
+    if set(supplied) != INPUTS or not all(isinstance(v, str) and v for v in supplied.values()):
+        parser.error('Input keys must match: ' + ', '.join(sorted(INPUTS)))
     for key, value in supplied.items():
         if not key.endswith('_SHA256'):
             supplied[key] = str((args.inputs.resolve().parent / value).resolve())
@@ -193,6 +191,9 @@ def main():
                             str(destination / 'rootfs.tar.gz.part-')], check=True)
             (destination / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')
             hashes = dict(metadata['files'])
+            for part in sorted(destination.glob('rootfs.tar.gz.part-*')):
+                with part.open('rb') as stream:
+                    hashes[part.name] = hashlib.file_digest(stream, 'sha256').hexdigest()
             hashes['bundle.json'] = hashlib.sha256((destination / 'bundle.json').read_bytes()).hexdigest()
             (destination / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in hashes.items()))
             continue
@@ -229,7 +230,20 @@ def main():
                      'NOTICE': project / 'NOTICE', 'LICENSE': project / 'LICENSE',
                      ksu_modules[0].name: ksu_modules[0], 'dualboot-tools.zip': dualboot_tools,
                      'FINGERPRINT.md': project / 'docs/FINGERPRINT.md',
-                     'FINGERPRINT.zh-CN.md': project / 'docs/FINGERPRINT.zh-CN.md'}
+                     'FINGERPRINT.zh-CN.md': project / 'docs/FINGERPRINT.zh-CN.md',
+                     'fingerprint-build-inputs.tar.gz': Path(supplied['FINGERPRINT_BUNDLE'])}
+            if imported:
+                proof = out / 'kernel-build-proof.zip'
+                proof_files = [kernel / 'build-info.json', kernel / 'SHA256SUMS',
+                               kernel / '.config', *sorted((kernel / 'provenance').iterdir())]
+                with zipfile.ZipFile(proof, 'w', zipfile.ZIP_DEFLATED) as archive:
+                    for source in proof_files:
+                        entry = zipfile.ZipInfo(source.relative_to(kernel).as_posix(),
+                                                date_time=(1980, 1, 1, 0, 0, 0))
+                        entry.compress_type = zipfile.ZIP_DEFLATED
+                        entry.external_attr = 0o644 << 16
+                        archive.writestr(entry, source.read_bytes())
+                files['kernel-build-proof.zip'] = proof
             hashes = {}
             for name, source in files.items():
                 if name in ('boot.img', 'installer.img', 'rootfs.tar.gz'):
