@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=指纹设置（首次录入）
+Name=指纹录入
 Comment=完成一次录入与校验后，在系统登录和锁屏界面使用指纹
-Exec=ptyxis --standalone --maximize --title=指纹录入（首次设置） -- /usr/local/bin/liuqin-fingerprint-accept-terminal
+Exec=ptyxis --standalone --maximize --title=指纹录入 -- /usr/local/bin/liuqin-fingerprint-accept-terminal
 Icon=fingerprint
 Terminal=false
 Categories=Settings;Security;

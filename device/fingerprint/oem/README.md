@@ -68,7 +68,7 @@ acceptance remains pending.
 Extract into a root-owned directory and run install.py as root. It installs
 /usr/local/lib/liuqin-fpc-oem, preserves password login and masks normal fprintd
 until acceptance. It never writes boot partitions. Use temporary fastboot boot
-of the previously accepted support image, then the installed “指纹设置（首次录入）”
+of the previously accepted support image, then the installed “指纹录入”
 launcher or sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py.
 
 Existing accepted templates are reused. Acceptance requires same-finger match,
