@@ -1,133 +1,103 @@
-# Fingerprint on Xiaomi Pad 6 Pro
+# Xiaomi Pad 6 Pro fingerprint support
 
 [简体中文](FINGERPRINT.zh-CN.md)
 
-## Status
+## Current status
 
-FPC1264 fingerprint support is optional and currently supports one fingerprint
-per Linux user. On the recorded desktop-r3 device setup, authorised enrolment,
-persisted same-finger matching, matching after a daemon restart, rejection of an
-unenrolled finger and GNOME lock-screen unlock passed. Automatic rotation also
-passed on that setup. Placement sensitivity and unlock stutter remain; there
-is no measured success rate or touch-to-unlock latency.
+The native Ubuntu Settings enrollment interface is implemented for the FPC1264
+sensor. It uses the normal system authorization dialog and fprintd/libfprint
+progress, cancellation and storage. Normal use does not require a terminal or a
+separate fingerprint application.
 
-The default project image does not install this component or enable fingerprint
-login. The current source-layout and packaging adaptation is a new candidate:
-its CI build and packaging checks passed, but it has not been installed and
-accepted on the tablet. The earlier device result applies to its recorded
-component combination, not to every image built from this branch.
+As of 2026-10-07, the matching native candidate (`70a4494`) is running on the test
+device. “Fingerprint Login” appears on the native Users page, and a root-driven
+`EnrollStart` → cancel check completed with cleanup. **No completed fingerprint
+template is present yet. Enrollment, same/other-finger matching, persistence,
+lock-screen unlock and cold-boot login remain unverified.** Root API cancellation
+is not proof of the normal user's authorization or full Settings workflow.
 
-## Requirements and installation
+Earlier contributor results used a different component combination and do not
+establish acceptance of this candidate. Fingerprint support is still an optional
+candidate, not a fully validated capability of every released image.
 
-Use the previously accepted support boot with its exact matching FPC module,
-OEM FPC/Keymaster trusted applications, and a real Gatekeeper/UFS RPMB provider.
-The tested desktop ABI is libfprint/TOD 1.95.1+tod1 with the project fprintd
-adaptation. Firmware, boot binaries and private device state are separate
-inputs. Build and explicit candidate preparation are described in the
-[component instructions](../device/fingerprint/oem/README.md).
+## Requirements
 
-Install only a candidate prepared for the actual Linux account and support
-kernel. Extract its archive into a root-owned directory and run its install.py
-as root. Installation preserves password login and keeps the normal fprintd
-service masked until physical acceptance. It adds an isolated PAM input stack;
-it does not replace the system password-login stack.
+Use a bundle prepared for the actual Linux username/UID, together with its exact
+support kernel, FPC module, device tree and OEM firmware. The current scope is
+**one configured Linux account and one finger**. Kernel/module hashes and wiring
+checks must not be bypassed.
 
-The support kernel currently uses temporary fastboot boot. Ordinary reboot
-returns to the installed kernel and may remove fingerprint support. This source
-series does not install a kernel to a real boot partition. The complete DTB from
-the separate kernel submission has not passed device boot acceptance.
+A temporary RAM boot does not install a kernel for the next power-on. Fingerprint
+availability after reboot requires the matching kernel and modules to be
+persistently installed. That cold-boot path is still awaiting validation.
+Build and installation details are in the [component reference](../device/fingerprint/oem/README.md).
 
-## First use and verification
+## Enroll through Ubuntu Settings
 
-After starting the accepted support boot, open “指纹录入” (One-time fingerprint
-setup) in the application menu. The installed launcher obtains its narrow
-local authorisation. A terminal can also use:
+1. Open **Settings → System → Users → Fingerprint Login** for the configured
+   account. Unlock Settings if the normal system dialog requests it.
+2. Choose a finger and authorize enrollment in the system password dialog.
+3. Follow the native scan, lift/reposition and progress instructions until the
+   dialog reports completion. Cancellation waits for the ongoing operation to
+   clean up before releasing the reader.
 
-~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py
-~~~
+After successful enrollment, verification uses the regular Ubuntu login and
+lock screen. The normal password-login stack is preserved, so password login
+remains the fallback. The presence of the Settings row or a running service does
+not demonstrate successful enrollment or unlock.
 
-A new Linux account can use the same acceptance launcher for first-time setup,
-after booting the matching support kernel. The launcher uses one
-PAM password prompt and boot-local, one-use kernel-memory authorization for
-the subsequent enrolment. Credential creation and enrolment write secure
-storage and the local template.
+Another enrollment is refused while a finger is already stored for this
+account. If intentionally replacing it, use the Settings deletion control first;
+do not remove private files to force re-enrollment.
 
-This authenticates the Linux password and creates that account's credential
-through the normal Gatekeeper chain. Existing handles are preserved: do not
-repeat creation to repair a failed match or delete an uncertainty marker to
-force it. Accounts with existing credentials skip this step.
+## Passwords and existing identities
 
-Use the normal Linux password prompt when credential input is required. If a
-published template already exists, the entry reuses it. It does not ask for
-another enrolment to investigate a matching or packaging problem.
+The password dialog is the desktop's Polkit authorization for enrolling or
+deleting a fingerprint. The provider does **not** store the Linux password. It
+creates a separate, root-only random machine credential and Gatekeeper handle
+for the configured account; those private files stay on this tablet. A Linux
+password change therefore requires no separate fingerprint-password sync for
+this native route.
 
-The full acceptance flow asks for the enrolled finger, restarts the daemon and
-asks for that finger again, then asks for an unenrolled finger. Only successful
-same-finger/reload matches and explicit other-finger rejection enable the desktop
-daemon. Finally, lock GNOME, unlock with the enrolled finger, and check display
-and automatic rotation. A successful TA call or build alone does not establish
-that desktop result.
+Existing password-derived identities and templates are not automatically
+migrated, recreated or deleted. Preserve any uncertain-creation markers rather
+than attempting a credential reset. Initial credential creation writes real
+Gatekeeper/RPMB state; cancellation during that short transaction finishes its
+safe commit before stopping and does not proceed into fingerprint capture.
+A temporary kernel does not make these operations read-only.
 
-For one match attempt with an existing template:
+## Validation still required
 
-~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py --verify
-~~~
+The current candidate needs a completed native enrollment, same-finger acceptance,
+other-finger rejection, reload of the saved template, native lock-screen unlock
+and fresh-boot GDM login before it can be considered working end to end.
 
-This reports one match result. It does not write the full acceptance record or
-complete the desktop acceptance flow. Normal GNOME Settings enrolment is
-unsupported because its Enroll API does not supply the required authorisation.
+Verification does not consume the old boot-local 18-hour enrollment authorization
+or ask for the Linux password through the legacy helper. Whether resident
+Keymaster state needs additional initialization after a cold boot remains
+unproven. Cold-boot testing must start at the regular login screen before running
+any manual Keymaster negotiation or setup helper.
 
-## Password changes and recovery
+Placement sensitivity, latency, suspend/resume, long-term reliability and
+Android dual-boot coexistence are not established for this candidate.
 
-After changing the Linux password, use the separate synchronisation entry:
+## Appendix: recovery and legacy diagnostics
 
-~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/user_credentials.py --sync-password "$USER"
-~~~
-
-It authenticates the current Linux password through PAM and obtains the prior
-fingerprint credential password through hidden terminal prompts. Failure or
-cancellation preserves the existing handle and templates. Desktop password
-changes do not yet invoke this entry automatically.
-
-To disable fingerprint login while retaining credentials and templates:
+If fingerprint verification must be disabled while preserving private state and
+password login, an administrator can stop and mask the normal daemon:
 
 ~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py --recover
+sudo systemctl mask --now fprintd.service
 ~~~
 
-Password login stays available. The recovery entry does not rebind GENI or reset
-secure storage.
+Diagnostic details are available from `fprintd.service` and
+`liuqin-fpc-stable-module.service`. Share only status/phase information, never
+passwords, random credentials, handles, tokens, templates or calibration.
 
-## Troubleshooting and remaining limits
-
-- If the application entry is missing, the optional candidate has not necessarily
-  been installed. Follow its build/install instructions; the default image does
-  not promise fingerprint support.
-- If the entry reports a kernel/module mismatch or an unavailable FPC/TEE node,
-  verify the candidate's exact support boot and module identity. Retain the
-  2960000–3008000 microvolt sensor supply.
-- If matching is inconsistent, lift the finger fully and try a different contact
-  position. Placement sensitivity is a known limitation; repeated enrolment is
-  not the default recovery step.
-- If GNOME fails to unlock or remains slow, retain password login and inspect
-  only public integer/status diagnostics. Do not publish passwords, derived
-  inputs, handles, HATs, templates, raw captures or private calibration.
-- The specific identify 4/12 retry path, cold boot, suspend/resume and long-term
-  reliability are unaccepted. Historical GENI memory corruption remains
-  undiagnosed. This work does not claim to fix it.
-
-## Components and sources
-
-The kernel series supplies QSEE transport and SPI sensor control. OEM trusted
-applications perform authorisation and biometric matching. The userspace series
-supplies the authenticated provider, PAM input, enrolment/persistence, TOD adapter
-and fprintd adaptation. It does not use a host software fingerprint matcher.
-
-Dependencies and original source hashes are recorded in
-[SOURCE_LOCK.json](../device/fingerprint/oem/SOURCE_LOCK.json). File-level
-licenses and [NOTICE](../NOTICE) retain the original authorship and terms.
-The legacy /dev/fpc1020 and fpc,fpc1020 names are retained device ABI names;
-validated hardware scope is this tablet's FPC1264.
+`acceptance.py`, the old terminal launcher and `user_credentials.py` remain
+internal tools for the legacy development-helper interface. They are not the
+normal native entry; native installation removes their application-menu launchers.
+The old `--sync-password` command applies only to password-derived legacy
+identities. Do not run legacy create or random probe-UID operations as native
+preflight checks. See the [component reference](../device/fingerprint/oem/README.md)
+for that distinction and the matching-package requirements.
