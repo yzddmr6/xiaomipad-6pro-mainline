@@ -144,6 +144,44 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(self.calls(), [])
         self.assertFalse(self.state.exists())
 
+    def set_release_profile(self):
+        (self.bundle / "CANDIDATE.json").write_text(json.dumps({
+            "account_profile": "primary-uid-1000", "linux_uid": 1000}))
+
+    def test_release_profile_resolves_primary_and_preserves_existing_binding(self):
+        # A bound development install can be upgraded without creating another
+        # machine identity or changing its account-binding metadata.
+        self.assertEqual(self.invoke()[0], 0)
+        record = self.state / str(0x60000000 | 1000) / "credential.json"
+        before = record.read_bytes()
+        self.set_release_profile()
+        with patch.object(provider.pwd, "getpwuid", return_value=self.user) as lookup:
+            self.assertEqual(self.invoke("release-print")[0], 0)
+            lookup.assert_called_once_with(1000)
+        self.assertEqual(record.read_bytes(), before)
+        self.assertEqual([call["operation"] for call in self.calls()],
+                         ["--create", "--enrol", "--enrol"])
+
+    def test_release_profile_fresh_arbitrary_name_and_missing_primary(self):
+        self.user = SimpleNamespace(pw_name="new-local-user", pw_uid=1000)
+        self.set_release_profile()
+        with patch.object(provider.pwd, "getpwuid", side_effect=KeyError):
+            self.assertNotEqual(self.invoke()[0], 0)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.state.exists())
+        with patch.object(provider.pwd, "getpwuid", return_value=self.user):
+            self.assertEqual(self.invoke()[0], 0)
+
+    def test_release_profile_rejects_other_uid_and_reassigned_account(self):
+        self.set_release_profile()
+        with patch.object(provider.pwd, "getpwuid", return_value=SimpleNamespace(pw_name="other", pw_uid=1000)):
+            self.assertNotEqual(self.invoke()[0], 0)
+        self.user.pw_uid = 1001
+        with patch.object(provider.pwd, "getpwuid", return_value=self.user):
+            self.assertNotEqual(self.invoke()[0], 0)
+        self.assertFalse(self.state.exists())
+        self.assertEqual(self.calls(), [])
+
     def test_nonroot_refused_before_state_or_runtime(self):
         with patch.object(provider.os, "geteuid", return_value=1000):
             self.assertNotEqual(self.invoke()[0], 0)

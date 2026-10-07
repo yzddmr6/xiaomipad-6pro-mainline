@@ -47,8 +47,12 @@ After the matching bundle and kernel have been installed:
 The active local user must authenticate for each enroll/delete action
 (`auth_self`, without retaining that authorization). fprintd checks the real
 D-Bus sender and separately authorizes selection of another username. The native
-provider additionally restricts operations to the username/UID in the installed
-candidate. Managing multiple accounts is outside this candidate's scope.
+provider additionally restricts operations to the installed account profile.
+The public package supports only the first local account, UID 1000, resolving
+its name after initial setup. Development bundles retain explicit username/UID
+binding. Existing private credential records retain their username/UID binding;
+changing profiles does not recreate, rename or migrate an identity. Managing
+multiple accounts is outside this component's scope.
 
 The provider uses a separate root-private random credential and Gatekeeper
 handle under `/var/lib/liuqin-fingerprint/native-enrollment/`, with native UID
@@ -93,6 +97,33 @@ sequence. The observed reboot test does not justify adding speculative
 initialization or claiming every power-loss/recovery scenario has passed.
 
 ## Build and package
+
+The release image uses the `liuqin-fingerprint` Debian package. Build it from
+the reviewed r4 host bundle, without accessing a device or host services:
+
+~~~sh
+python3 tools/build-liuqin-fingerprint-deb.py --bundle /path/to/fingerprint.tar.gz --out out/fingerprint-debs --version 0.6.0
+~~~
+
+This preserves the verified native binaries and exact FE module, overlays the
+current Python integration, and stages the standard fprintd service, enrollment
+Polkit rule and `UMask=0077`. It needs no existing user during rootfs assembly,
+creates no credential/template, and installs no separate enrollment app. The
+package pins the verified libfprint/TOD package ABI and matching kernel package.
+The default first local UID 1000 account uses Ubuntu Settings after first boot.
+The first-user profile and local firmware extraction still require final image
+verification; the preceding device results describe the bound development bundle.
+
+The public Debian package **does not distribute OEM trusted applications**.
+It includes [ten fixed hashes](firmware/SHA256.json) and their
+[stock provenance](firmware/NOTICE). Before late module loading, it reuses a
+verified local cache or mounts this tablet's `modem_a` FAT read-only and copies
+only those ten files. This occurs on normal boot, after the installer repairs
+the stock modem image. A missing or mismatched image fails fingerprint startup
+without a repair/retry loop, raw writes, or blocking password login. No firmware
+extraction or credential creation runs during Debian/rootfs installation.
+
+### Internal source builds and bound development bundles
 
 [SOURCE_LOCK.json](SOURCE_LOCK.json) records source revisions and pinned Ubuntu
 archives. [FPRINTD_SOURCE_HASHES.json](FPRINTD_SOURCE_HASHES.json) verifies the

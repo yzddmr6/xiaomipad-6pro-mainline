@@ -141,8 +141,19 @@ def enrol(username, output, runtime):
         if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
             raise ValueError("untrusted program bundle")
     candidate = json.loads((here / "CANDIDATE.json").read_text())
-    if (candidate.get("linux_username"), candidate.get("linux_uid")) != (username, user.pw_uid):
-        raise ValueError("target differs from the installed account")
+    profile = candidate.get("account_profile", "bound-account")
+    if profile == "primary-uid-1000":
+        # Resolve only on authorized enrollment, after initial setup created the
+        # local account. Persistent credential binding below remains unchanged.
+        primary = pwd.getpwuid(1000)
+        if (candidate.get("linux_uid") != 1000 or user.pw_uid != 1000 or
+                primary.pw_name != username):
+            raise ValueError("only the primary local account is supported")
+    elif profile == "bound-account":
+        if (candidate.get("linux_username"), candidate.get("linux_uid")) != (username, user.pw_uid):
+            raise ValueError("target differs from the installed account")
+    else:
+        raise ValueError("unsupported account profile")
     prints = FPRINT_ROOT / username / "fpc1264_oem" / "liuqin-fpc1264-oem"
     if any(os.path.lexists(prints / finger) for finger in "123456789a"):
         print("native_enrol=REFUSED existing_template=1", flush=True)

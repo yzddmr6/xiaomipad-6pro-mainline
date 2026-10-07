@@ -48,6 +48,9 @@ def load():
     module = here / "kernel/fpc1264_spi_diag.ko"
     if hashlib.sha256(module.read_bytes()).hexdigest() != candidate["kernel_module_sha256"]:
         raise RuntimeError("Stable FPC module hash mismatch")
+    if candidate.get("firmware_source") == "modem_a-read-only":
+        from provision_firmware import provision
+        provision(here / "firmware")
     if not Path("/dev/fpc1020").exists():
         subprocess.run(["insmod", str(module)], check=True)
         subprocess.run(["udevadm", "settle", "--timeout=5"], check=True)
