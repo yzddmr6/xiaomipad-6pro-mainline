@@ -55,8 +55,19 @@ ROM 中的 `boot.img` 例外，不会被刷入：`boot_a` 写入本项目的 boo
 
 `--layout dual` 必须提供 `--rom-dir`，指向解包后的原厂小米 Fastboot ROM 目录。
 原厂 ROM 从上游取得，不在本项目重复托管。安装器会用 `liuqin-rom-images.json` 中固定的校验值
-核对 `boot.img`、`vendor_boot.img`、`dtbo.img`、`vbmeta.img`、`vbmeta_system.img` 与 `super.img`，
+核对 `boot.img`、`vendor_boot.img`、`dtbo.img`、`vbmeta.img`、`vbmeta_system.img`、`super.img`、
+`NON-HLOS.bin`、`BTFM.bin` 与 `dspso.bin`，
 不匹配即拒绝。这些校验值对应本移植验证过的确切 ROM 版本；更换版本需要重新完成该验证。
+
+`NON-HLOS.bin` 恢复包含 WLAN 与 DSP 固件的 `modem_a`，`BTFM.bin` 恢复 `bluetooth_a`，
+`dspso.bin` 恢复 `dsp_a`。
+固件文件系统缺失或损坏会使 Android 在 ADB 启动前崩溃，即使 boot 与系统镜像完全匹配。
+已匹配的分区保持不动；需要替换时，安装器先将原分区完整保存为私有备份目录中的
+`modem_a.img`、`bluetooth_a.img` 或 `dsp_a.img` 并核对校验值。
+替换镜像按实际分区大小零填充，刷入前再次核验，避免 ROM 文件末尾之后残留旧损坏内容。
+若要撤销该替换，先核验备份目录的 `SHA256SUMS`，再执行
+`fastboot -s SERIAL flash modem_a /path/to/backup/modem_a.img`（蓝牙与 DSP 分别对应 `bluetooth_a`、`dsp_a`）。
+这会恢复备份的原字节，包括原有损坏，不改变分区表或 Android 数据。
 
 同时需遵守 ROM 自身的防回滚要求：ROM 版本不得低于设备已熔断的版本。
 

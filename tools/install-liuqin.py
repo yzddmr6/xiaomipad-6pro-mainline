@@ -38,6 +38,9 @@ LINUX_ONLY_UBUNTU_SLOT = 'b'
 # it is stored for liuqin-switch and served to the RAM installer under this name.
 ANDROID_BOOT_IMAGE = 'boot.img'
 ANDROID_BOOT_URL = 'android-boot.img'
+# These stock firmware filesystems are required by Android before ADB starts.
+# Back up a mismatching partition before restoring it from the pinned ROM.
+ANDROID_FIRMWARE_PARTITIONS = ('modem_a', 'bluetooth_a', 'dsp_a')
 # Every layout operation resolves the disk through a partition that exists in
 # every state of this installation: persist is never created, moved or removed.
 ANCHOR = 'persist'
@@ -100,6 +103,9 @@ def pad_boot_image(source, expected_sha256, size, directory):
     partition size, so that is exactly what is flashed.  The zeros are a
     sparse tail (truncate), so the file costs the image's own size on disk.
 
+    Firmware restores also use this helper with their own scratch directory
+    and actual partition size, so an old nonzero tail cannot survive a repair.
+
     Returns the padded file and its sha256.  The source is checked against
     `expected_sha256` while it is copied, so the padded file carries no bytes
     other than those of the verified bundle image.
@@ -114,13 +120,13 @@ def pad_boot_image(source, expected_sha256, size, directory):
             out.write(chunk)
         length = out.tell()
         if length > size:
-            raise RuntimeError(f'the boot image is {length} bytes, larger than the {size}-byte boot partition')
+            raise RuntimeError(f'the image is {length} bytes, larger than the {size}-byte partition')
         out.truncate(size)
     if image.hexdigest() != expected_sha256:
-        raise RuntimeError('the boot image changed while it was being padded; nothing was written')
+        raise RuntimeError('the image changed while it was being padded; nothing was written')
     update_zeros(padded, size - length)
     if target.stat().st_size != size:
-        raise RuntimeError(f'the padded boot image is not {size} bytes')
+        raise RuntimeError(f'the padded image is not {size} bytes')
     return target, padded.hexdigest()
 
 
@@ -526,16 +532,7 @@ def main(argv=None):
         args.backup.mkdir(mode=0o700, parents=True)
         backups = {}
         for name in ('boot_a', 'boot_b', 'persist'):
-            print('Backing up and verifying ' + name + '...', flush=True)
-            device = '/dev/disk/by-partlabel/' + name
-            content = remote('test -b ' + device + ' && /bin/busybox base64 ' + device, 600)
-            target = args.backup / (name + '.img')
-            target.write_bytes(base64.b64decode(content, validate=False))
-            target.chmod(0o600)
-            expected = remote('/bin/busybox sha256sum ' + device, 120).decode().split()[0]
-            if sha(target) != expected:
-                raise RuntimeError('Backup verification failed: ' + name)
-            backups[target.name] = expected
+            backups[name + '.img'] = backup_partition(remote, args.backup, name)
         (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
         saved = backup_partition_table(device_layout, args.backup, args.serial)
         disk = layout.parse_print(device_layout('report', ANCHOR))
@@ -569,6 +566,19 @@ def main(argv=None):
         if args.layout == 'dual':
             flashes = stock_images_to_flash(device_layout, {
                 name: entry for name, entry in rom_images.items() if name != ANDROID_BOOT_IMAGE})
+            for index, (image_name, entry) in enumerate(flashes):
+                name = entry['partition']
+                if name in ANDROID_FIRMWARE_PARTITIONS:
+                    backups[name + '.img'] = backup_partition(remote, args.backup, name)
+                    firmware_bytes = (args.backup / (name + '.img')).stat().st_size
+                    firmware_scratch = Path(scratch.name) / name
+                    firmware_scratch.mkdir()
+                    image, digest = pad_boot_image(entry['path'], entry['sha256'],
+                                                   firmware_bytes, firmware_scratch)
+                    flashes[index] = (image_name, dict(entry, path=image,
+                                                      flash_bytes=firmware_bytes,
+                                                      flash_sha256=digest))
+            (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
         base = f'http://{args.host_address}:{server.server_port}'
         install = install_root_command(boot_id, base, bundle, manifest, args, rom_images)
         print('Installing Ubuntu into ' + layout.ROOT_NAME + '.', flush=True)
@@ -602,6 +612,20 @@ def boot_slots(mode):
     return (LINUX_ONLY_UBUNTU_SLOT,)
 
 
+def backup_partition(remote, directory, name):
+    """Save and verify the entire original partition before a possible write."""
+    print('Backing up and verifying ' + name + '...', flush=True)
+    device = '/dev/disk/by-partlabel/' + name
+    content = remote('test -b ' + device + ' && /bin/busybox base64 ' + device, 600)
+    target = directory / (name + '.img')
+    target.write_bytes(base64.b64decode(content, validate=False))
+    target.chmod(0o600)
+    expected = remote('/bin/busybox sha256sum ' + device, 120).decode().split()[0]
+    if sha(target) != expected:
+        raise RuntimeError('Backup verification failed: ' + name)
+    return expected
+
+
 def finish_in_fastboot(fastboot, mode, flashes, padded_image, padded_sha256, partition_bytes):
     """The fastboot tail of an installation, after the root is in place.
 
@@ -614,6 +638,11 @@ def finish_in_fastboot(fastboot, mode, flashes, padded_image, padded_sha256, par
     """
     if padded_image.stat().st_size != partition_bytes or sha(padded_image) != padded_sha256:
         raise RuntimeError('the zero-filled boot image changed before it was flashed; boot_a was not written')
+    for name, entry in flashes:
+        if entry['partition'] in ANDROID_FIRMWARE_PARTITIONS:
+            path = Path(entry['path'])
+            if path.stat().st_size != entry['flash_bytes'] or sha(path) != entry['flash_sha256']:
+                raise RuntimeError('the zero-filled firmware image changed before flashing: ' + name)
     for name, entry in flashes:
         source = 'supplied' if entry.get('override') else 'stock'
         print(f'Writing the {source} {name} to {entry["partition"]}...', flush=True)

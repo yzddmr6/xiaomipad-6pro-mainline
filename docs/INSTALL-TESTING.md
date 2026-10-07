@@ -69,10 +69,24 @@ never writes a `_b` partition other than `boot_b`.
 `--layout dual` requires `--rom-dir`, pointing at an extracted stock Xiaomi
 Fastboot ROM. The original ROM is an upstream input and is not redistributed
 here. The installer verifies `boot.img`, `vendor_boot.img`, `dtbo.img`,
-`vbmeta.img`, `vbmeta_system.img` and `super.img` against the checksums pinned
+`vbmeta.img`, `vbmeta_system.img`, `super.img`, `NON-HLOS.bin`, `BTFM.bin` and
+`dspso.bin` against the checksums pinned
 in `liuqin-rom-images.json`, and refuses any other release. Those checksums
 identify the exact ROM this port was validated against; a different ROM
 requires repeating that validation.
+
+`NON-HLOS.bin` restores `modem_a`, which contains the WLAN and DSP firmware;
+`BTFM.bin` restores `bluetooth_a`, and `dspso.bin` restores `dsp_a`. A missing or damaged firmware filesystem can
+crash Android before ADB starts even when its boot and system images match.
+Matching partitions are left alone. Before replacing one of these firmware partitions,
+the installer saves its entire original contents as `modem_a.img`,
+`bluetooth_a.img` or `dsp_a.img` in the private backup directory and verifies its checksum.
+The replacement is zero-filled to the actual partition size and checked again
+before flashing, so damaged bytes beyond the original ROM file cannot survive.
+To undo a replacement, verify that directory's `SHA256SUMS`, then use
+`fastboot -s SERIAL flash modem_a /path/to/backup/modem_a.img` (or the corresponding
+`bluetooth_a` or `dsp_a` command). This restores the saved bytes, including any pre-existing
+damage; it does not alter the partition table or Android data.
 
 Observe the ROM's own anti-rollback rule: its version must be at least the
 version already fused into the tablet.

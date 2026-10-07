@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Offline tests: no Fastboot, tablet connection or block-device writes."""
 import hashlib
+import base64
 import importlib.util
 import json
 import os
@@ -256,6 +257,57 @@ with tempfile.TemporaryDirectory() as directory:
     assert refused and 'does not match the pinned' in refused[0], refused
 print('PASS: a ROM directory whose images do not match the pinned release is refused')
 
+# Android loads WLAN/DSP and Bluetooth firmware before its debug channel is
+# available. A valid boot/super pair alone cannot repair these filesystems.
+firmware_images = {'NON-HLOS.bin': 'modem_a', 'BTFM.bin': 'bluetooth_a', 'dspso.bin': 'dsp_a'}
+for name, partition in firmware_images.items():
+    entry = pinned['images'][name]
+    assert entry['partition'] == partition
+    assert partition in installer.ANDROID_FIRMWARE_PARTITIONS
+    calls = []
+
+    def firmware_digest(*args, **kwargs):
+        calls.append(args)
+        assert args == ('digest', partition, str(entry['bytes']))
+        return (f'size {entry["bytes"] + 4096}\n'
+                f'content {content_sha}\npadding {padding_sha}\n')
+
+    for content_sha, padding_sha, repair in (
+            ('0' * 64, installer.zero_digest(4096), True),
+            (entry['sha256'], installer.zero_digest(4096), False),
+            (entry['sha256'], '1' * 64, True)):
+        selected = installer.stock_images_to_flash(firmware_digest, {name: entry})
+        assert selected == ([(name, entry)] if repair else []), (name, selected)
+    assert len(calls) == 3
+
+    with tempfile.TemporaryDirectory() as directory:
+        saved = Path(directory)
+        original = b'previous partition contents, including a damaged filesystem'
+        expected_sha = hashlib.sha256(original).hexdigest()
+        commands = []
+
+        def read_partition(command, timeout=60):
+            commands.append(command)
+            assert '/dev/disk/by-partlabel/' + partition in command
+            if 'base64' in command:
+                return base64.b64encode(original) + b'\r\n'
+            assert 'sha256sum' in command
+            return (expected_sha + '  /dev/disk/by-partlabel/' + partition + '\n').encode()
+
+        assert installer.backup_partition(read_partition, saved, partition) == expected_sha
+        backup = saved / (partition + '.img')
+        assert backup.read_bytes() == original
+        assert backup.stat().st_mode & 0o777 == 0o600
+        assert len(commands) == 2
+        expected_sha = 'f' * 64
+        try:
+            installer.backup_partition(read_partition, saved, partition)
+        except RuntimeError as error:
+            assert 'Backup verification failed' in str(error)
+        else:
+            raise AssertionError('firmware backup hash mismatch was accepted')
+print('PASS: required Android firmware is repaired only on mismatch, with verified private backups')
+
 # The installer RAM image has no /tmp, so everything the host writes on the
 # tablet goes to the scratch directory the device script reads from -- and the
 # host creates that directory before writing into it, because the first
@@ -287,8 +339,20 @@ with tempfile.TemporaryDirectory() as directory:
     image = root / 'boot.img'
     image.write_bytes(boot_header('ubuntu') + b'\x5a' * 8192)
     padded, padded_sha = installer.pad_boot_image(image, installer.sha(image), boot_bytes, root)
+    firmware_flashes = []
+    for name, partition in firmware_images.items():
+        scratch = root / partition
+        scratch.mkdir()
+        source = scratch / name
+        source.write_bytes(b'known stock firmware')
+        payload, digest = installer.pad_boot_image(source, installer.sha(source), 4096, scratch)
+        assert payload.read_bytes() == b'known stock firmware' + bytes(4096 - len(b'known stock firmware'))
+        firmware_flashes.append((name, {'partition': partition, 'path': payload,
+                                       'flash_bytes': 4096, 'flash_sha256': digest}))
+    firmware_flashes.sort()
     for mode, expected in (
-            ('dual', [['flash', 'vendor_boot_a', '/rom/vendor_boot.img'],
+            ('dual', [['flash', entry['partition'], str(entry['path'])] for _, entry in firmware_flashes] +
+                     [['flash', 'vendor_boot_a', '/rom/vendor_boot.img'],
                       ['flash', 'boot_a', str(padded)],
                       ['flash', 'boot_b', str(padded)],
                       ['--set-active=a'], ['reboot']]),
@@ -303,7 +367,8 @@ with tempfile.TemporaryDirectory() as directory:
                 payload = Path(arguments[2])
                 payloads[arguments[1]] = (payload.stat().st_size, installer.sha(payload))
 
-        flashes = [('vendor_boot.img', {'partition': 'vendor_boot_a', 'path': '/rom/vendor_boot.img'})] \
+        flashes = firmware_flashes + [
+            ('vendor_boot.img', {'partition': 'vendor_boot_a', 'path': '/rom/vendor_boot.img'})] \
             if mode == 'dual' else []
         installer.finish_in_fastboot(record, mode, flashes, padded, padded_sha, boot_bytes)
         assert sent == expected, (mode, sent)
@@ -311,6 +376,20 @@ with tempfile.TemporaryDirectory() as directory:
         # Every boot write is the whole partition: the image, then zeros.
         assert set(payloads) == {'boot_' + slot for slot in installer.boot_slots(mode)}, payloads
         assert all(payload == (boot_bytes, padded_sha) for payload in payloads.values()), payloads
+    # No partition is written if a prepared firmware payload has changed.
+    damaged = firmware_flashes[0][1]['path']
+    with damaged.open('r+b') as stream:
+        stream.seek(4095)
+        stream.write(b'\x01')
+    sent = []
+    try:
+        installer.finish_in_fastboot(lambda *a: sent.append(a), 'dual', firmware_flashes,
+                                     padded, padded_sha, boot_bytes)
+    except RuntimeError as error:
+        assert 'firmware image changed' in str(error)
+    else:
+        raise AssertionError('a changed firmware payload was flashed')
+    assert sent == [], sent
     assert padded.read_bytes()[:image.stat().st_size] == image.read_bytes()
     assert padded.read_bytes()[image.stat().st_size:] == bytes(boot_bytes - image.stat().st_size)
     # A padded file that changed after it was built is never flashed.
