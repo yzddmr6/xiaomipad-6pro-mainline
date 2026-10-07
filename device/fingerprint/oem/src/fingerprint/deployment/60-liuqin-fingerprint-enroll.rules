@@ -1,0 +1,10 @@
+/* fprintd supplies the real D-Bus sender and separately guards setusername.
+ * Ask that active local sender to authenticate for each enrol/delete action.
+ * Leave verification, other-user selection and inactive/remote policy intact.
+ */
+polkit.addRule(function(action, subject) {
+    if (action.id == "net.reactivated.fprint.device.enroll" &&
+        subject.local && subject.active) {
+        return polkit.Result.AUTH_SELF;
+    }
+});
