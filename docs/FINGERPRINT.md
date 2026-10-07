@@ -39,8 +39,8 @@ the separate kernel submission has not passed device boot acceptance.
 
 ## First use and verification
 
-After starting the accepted support boot, open “指纹最终验收” (Fingerprint final
-acceptance) in the application menu. The installed launcher obtains its narrow
+After starting the accepted support boot, open “指纹设置（首次录入）” (One-time fingerprint
+setup) in the application menu. The installed launcher obtains its narrow
 local authorisation. A terminal can also use:
 
 ~~~sh

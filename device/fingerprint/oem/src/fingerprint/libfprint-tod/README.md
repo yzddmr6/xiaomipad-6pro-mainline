@@ -50,7 +50,7 @@ stable-module service after desktop/SSH/rotation startup. The system daemon
 stays masked until the final real same/reloaded/other-finger acceptance passes.
 Password PAM remains unchanged; existing GDM fingerprint integration is used.
 
-The installed application “指纹最终验收” runs the narrowly scoped privileged
+The installed application “指纹设置（首次录入）” runs the narrowly scoped privileged
 `acceptance.py`. It reuses an accepted print/export if present, otherwise does
 one normal physical enrolment, same-finger verification, daemon-reload/same-
 finger verification, then other-finger rejection before activating desktop
