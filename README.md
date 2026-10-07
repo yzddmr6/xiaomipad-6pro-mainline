@@ -56,7 +56,12 @@ and device trees; other batches, capacities and accessory combinations are not i
 
 ✅ Working · 🟡 Partial · ❌ Unsupported · 🧪 Unverified
 
-v0.6.0 includes DP and native fingerprint support in the complete installation bundle. Installation, initial setup and user acceptance passed on the known 256 GB test unit.
+Verified features at a glance; see the table below for the scope of each:
+
+- ✅ CPU · ✅ GPU desktop acceleration · ✅ Internal storage · ✅ 120 Hz display · ✅ Touch · ✅ Manual brightness
+- ✅ Magnetic keyboard and touchpad · ✅ Native fingerprint login · ✅ Auto-rotation · ✅ Power and volume keys
+- ✅ Wi-Fi · ✅ Bluetooth · ✅ USB data transfer · ✅ USB OTG (wired mouse) · ✅ DP output (tested combination)
+- ✅ Four speakers · ✅ Single-microphone recording · ✅ H.264 hardware decoding (userspace) · ✅ Rear-camera preview (experimental) · ✅ Battery reporting and basic charging
 
 ### Platform, Display and Input
 
