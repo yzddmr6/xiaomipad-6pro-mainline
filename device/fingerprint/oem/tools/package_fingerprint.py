@@ -106,6 +106,8 @@ def main():
             "native_enrol.py" not in updates or "deployment/60-liuqin-fingerprint-enroll.rules" not in updates):
         raise RuntimeError("Native enrollment requires its provider, policy and installed startup mode")
     if interface == "fprintd":
+        if b"native_enrol.py\0" not in updates["tod/libfprint-tod-fpc1264-oem.so"].read_bytes():
+            raise RuntimeError("The built TOD does not contain native enrollment support")
         candidate["native_user_setup"] = "gnome-settings-polkit"
         candidate["credential_creation"] = "authorized_enrollment_only; writes Gatekeeper/RPMB state"
     candidate.update(schema=1, id="liuqin-fpc-oem-candidate-20261002-v1", native_uid=(0x60000000 if interface == "fprintd" else 0x50000000) | candidate["linux_uid"],
