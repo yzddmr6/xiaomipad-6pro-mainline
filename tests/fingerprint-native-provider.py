@@ -40,6 +40,7 @@ if operation=='--create':
  if mode=='cancel-create':
   (base/'create-ready').write_text('yes');time.sleep(.25)
  if mode=='create-fail':
+  print('native_credential_provider=FAILED phase=opaque_handle_output',flush=True)
   print(cleanup,flush=True);sys.exit(1)
  p=state/uid/'gatekeeper.handle';fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
  os.write(fd,b'opaque-test-handle');os.close(fd);print(cleanup,flush=True);sys.exit(0)
@@ -53,6 +54,13 @@ if mode=='cancel':
  (base/'ready').write_text('yes')
  while True:time.sleep(.05)
 if mode=='enrol-fail':
+ print('enrol_authorization=TA_rejected',flush=True)
+ print('end_enrol_not_submitted=1 fresh_authorization_failed=1',flush=True)
+ print('pipeline_incomplete=finger_down_wait',flush=True)
+ print('native_credential_provider=BUSY',flush=True)
+ print('oem_runtime_timed_out=1',flush=True)
+ print('oem_runtime_cancelled=1',flush=True)
+ print('private-value-must-not-appear-in-logs',flush=True)
  print(cleanup,flush=True);sys.exit(1)
 fd=os.open(sys.argv[4],os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
 os.write(fd,b'opaque-single-finger-test-database');os.close(fd)
@@ -144,7 +152,10 @@ class ProviderTests(unittest.TestCase):
 
     def test_partial_create_is_never_retried(self):
         (self.bundle / "mode").write_text("create-fail")
-        self.assertNotEqual(self.invoke()[0], 0)
+        status, log = self.invoke()
+        self.assertNotEqual(status, 0)
+        self.assertIn("native_credential_provider=FAILED phase=opaque_handle_output", log)
+        self.assertIn("native_enrol_runtime=FAILED operation=create status=1", log)
         account = self.state / str(0x60000000 | 1000)
         self.assertTrue((account / "create.requested").exists())
         before = (account / "credential.json").read_bytes()
@@ -152,6 +163,32 @@ class ProviderTests(unittest.TestCase):
         self.assertNotEqual(self.invoke()[0], 0)
         self.assertEqual(len(self.calls()), 1)
         self.assertEqual((account / "credential.json").read_bytes(), before)
+
+    def test_runtime_failures_forward_only_known_safe_statuses(self):
+        (self.bundle / "mode").write_text("enrol-fail")
+        rc, log = self.invoke()
+        self.assertNotEqual(rc, 0)
+        for message in ("enrol_authorization=TA_rejected",
+                        "end_enrol_not_submitted=1 fresh_authorization_failed=1",
+                        "pipeline_incomplete=finger_down_wait", "native_credential_provider=BUSY",
+                        "oem_runtime_timed_out=1", "oem_runtime_cancelled=1",
+                        "native_enrol_runtime=FAILED operation=enrol status=1"):
+            self.assertIn(message, log)
+        self.assertNotIn("private-value-must-not-appear", log)
+        self.assertNotIn("native_enrol=OK", log)
+        self.assertFalse((self.output_dir / "new-print").exists())
+
+    def test_exception_diagnostics_exclude_messages_and_paths(self):
+        for error, expected in ((ValueError("private-value-must-not-appear"),
+                                 "exception=ValueError errno=none"),
+                                (FileNotFoundError(2, "private-value-must-not-appear", "/secret/path"),
+                                 "exception=FileNotFoundError errno=2")):
+            with patch.object(provider, "enrol", side_effect=error):
+                rc, log = self.invoke()
+            self.assertNotEqual(rc, 0)
+            self.assertIn(expected, log)
+            self.assertNotIn("private-value-must-not-appear", log)
+            self.assertNotIn("/secret/path", log)
 
     def test_legacy_template_blocks_before_new_identity_or_ta(self):
         template = self.base / "fprint/alice/fpc1264_oem/liuqin-fpc1264-oem/a"

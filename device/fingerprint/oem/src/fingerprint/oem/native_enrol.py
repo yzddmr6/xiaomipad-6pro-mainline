@@ -24,7 +24,10 @@ import tempfile
 STATE_ROOT = Path("/var/lib/liuqin-fingerprint/native-enrollment")
 FPRINT_ROOT = Path("/var/lib/fprint")
 CLEANUP = "oem_runtime_cleanup firmware_path_restored=1 sensor_power_off=1 listener_stopped=1"
-FORWARD = ("READY ", "enrol_progress_status=", "capture_rejected=", "oem_runtime_cleanup ")
+FORWARD = ("READY ", "enrol_progress_status=", "capture_rejected=", "oem_runtime_cleanup ",
+           "native_credential_provider=FAILED", "native_credential_provider=BUSY",
+           "pipeline_incomplete=", "end_enrol_not_submitted=", "enrol_authorization=",
+           "oem_runtime_timed_out=", "oem_runtime_cancelled=")
 
 
 def private_directory(path):
@@ -196,8 +199,11 @@ def enrol(username, output, runtime):
         command = [sys.executable, "-u", str(here / "native_credentials.py"), "--state-dir", str(STATE_ROOT)]
         if not exists[0]:
             os.lseek(secret_fd, 0, os.SEEK_SET)
-            if runtime.run([*command, "--create", str(uid), str(secret_fd)], secret_fd,
-                           finish_creation=True) or not runtime.cleaned:
+            status = runtime.run([*command, "--create", str(uid), str(secret_fd)], secret_fd,
+                                 finish_creation=True)
+            if status or not runtime.cleaned:
+                print(f"native_enrol_runtime=FAILED operation=create status={status} "
+                      f"cleanup_complete={int(runtime.cleaned)}", file=sys.stderr, flush=True)
                 return 1
             private_read(handle, 1024)
             requested.unlink()
@@ -209,9 +215,10 @@ def enrol(username, output, runtime):
         with tempfile.TemporaryDirectory(prefix=".native-enrol-", dir=output.parent) as temporary:
             database = Path(temporary) / "database"
             os.lseek(secret_fd, 0, os.SEEK_SET)
-            if runtime.run([*command, "--enrol", str(database), str(uid), str(secret_fd)], secret_fd):
-                return 1
-            if not runtime.cleaned or runtime.cancelled:
+            status = runtime.run([*command, "--enrol", str(database), str(uid), str(secret_fd)], secret_fd)
+            if status or not runtime.cleaned or runtime.cancelled:
+                print(f"native_enrol_runtime=FAILED operation=enrol status={status} "
+                      f"cleanup_complete={int(runtime.cleaned)}", file=sys.stderr, flush=True)
                 return 1
             source_fd = os.open(database, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
             try:
@@ -258,8 +265,10 @@ def main(arguments=None):
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             handlers[sig] = signal.signal(sig, runtime.cancel)
         result = enrol(arguments[1], Path(arguments[2]), runtime)
-    except (OSError, ValueError, KeyError, TypeError):
-        print("native_enrol=FAILED phase=private_state_or_runtime existing_identities_preserved=1", file=sys.stderr)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        code = error.errno if isinstance(error, OSError) and isinstance(error.errno, int) else "none"
+        print("native_enrol=FAILED phase=private_state_or_runtime existing_identities_preserved=1 "
+              f"exception={type(error).__name__} errno={code}", file=sys.stderr)
         result = 1
     finally:
         if runtime.cleaned and runtime.child is None:
