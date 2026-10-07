@@ -19,6 +19,8 @@ def main():
     parser.add_argument("--firmware", type=Path, help="External OEM firmware directory for a new stage")
     parser.add_argument("--revision", help="Public program revision recorded in CANDIDATE.json")
     options = parser.parse_args()
+    if options.output.exists() or options.output.with_suffix(".json").exists():
+        raise RuntimeError("Preserve the existing archive; use a new output path")
     root = Path(__file__).resolve().parents[1]
     stage = options.stage
     existing = json.loads((stage / "SHA256.json").read_text()) if (stage / "SHA256.json").exists() else {}
@@ -97,7 +99,13 @@ def main():
             raise RuntimeError("Missing public candidate metadata: " + key)
     if not 0 < candidate["linux_uid"] < 0x10000000:
         raise RuntimeError("Unsupported Linux uid")
-    candidate.update(schema=1, id="liuqin-fpc-oem-candidate-20261002-v1", native_uid=0x50000000 | candidate["linux_uid"],
+    interface = candidate.get("enrollment_interface", "development-helper")
+    if interface not in ("development-helper", "fprintd"):
+        raise RuntimeError("Unsupported enrollment interface")
+    if interface == "fprintd" and (candidate.get("deployment_mode") != "installed" or
+            "native_enrol.py" not in updates or "deployment/60-liuqin-fingerprint-enroll.rules" not in updates):
+        raise RuntimeError("Native enrollment requires its provider, policy and installed startup mode")
+    candidate.update(schema=1, id="liuqin-fpc-oem-candidate-20261002-v1", native_uid=(0x60000000 if interface == "fprintd" else 0x50000000) | candidate["linux_uid"],
                      program_path="/usr/local/lib/liuqin-fpc-oem", supports_one_finger_per_user=True,
                      actual_biometric_acceptance="pending", partition_writes=0,
                      kernel_module_sha256=hashlib.sha256(options.kernel_module.read_bytes()).hexdigest())
