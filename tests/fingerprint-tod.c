@@ -13,12 +13,21 @@ typedef struct {
   guint stages;
   guint retries;
   gboolean should_cancel;
+  GPtrArray *warnings;
   gint64 started;
   gint64 cancelled;
   gint64 finished;
 } Fixture;
 
 static gchar *bundle;
+
+static void
+record_warning (const gchar *domain, GLogLevelFlags level, const gchar *message, gpointer data)
+{
+  (void) domain;
+  (void) level;
+  g_ptr_array_add (data, g_strdup (message));
+}
 
 static void
 fixture_probe (FpDevice *device)
@@ -83,7 +92,7 @@ exercise (gconstpointer data)
   const gchar *mode = data;
   gboolean success = g_str_equal (mode, "success") || g_str_equal (mode, "zero") ||
                      g_str_equal (mode, "wait-exit") || g_str_equal (mode, "stderr") ||
-                     g_str_equal (mode, "twenty-six");
+                     g_str_equal (mode, "twenty-six") || g_str_equal (mode, "normal-lift");
   gboolean cancelled = g_str_has_prefix (mode, "cancel");
   Fixture fixture = {0};
   g_autoptr(FpPrint) template = NULL;
@@ -109,21 +118,27 @@ exercise (gconstpointer data)
   g_setenv ("FPC_TEST_CASE", mode, TRUE);
   fixture.should_cancel = cancelled;
   fixture.started = g_get_monotonic_time ();
-  if (g_str_equal (mode, "diagnostics")) {
-    const gchar *messages[] = {"*native_enrol_runtime=FAILED*", "*native_enrol=FAILED*",
-                               "*pipeline_incomplete=*", "*end_enrol_not_submitted=*",
-                               "*enrol_authorization=TA_rejected*"};
-    for (guint i = 0; i < G_N_ELEMENTS (messages); i++)
-      g_test_expect_message (NULL, G_LOG_LEVEL_WARNING, messages[i]);
-  }
-  if (!success && (!cancelled || g_str_equal (mode, "cancel-no-cleanup")))
-    g_test_expect_message (NULL, G_LOG_LEVEL_WARNING, "*OEM enroll runtime exit=*");
+  fixture.warnings = g_ptr_array_new_with_free_func (g_free);
+  guint log_handler = g_log_set_handler (NULL, G_LOG_LEVEL_WARNING, record_warning, fixture.warnings);
   guint timeout = g_timeout_add_seconds (10, timed_out, NULL);
   fp_device_enroll (fixture.device, template, fixture.cancellable, progress, &fixture,
                    NULL, finished, &fixture);
   g_main_loop_run (fixture.loop);
   g_source_remove (timeout);
-  g_test_assert_expected_messages ();
+  g_log_remove_handler (NULL, log_handler);
+  guint expected_warnings = g_str_equal (mode, "diagnostics") ? 6 :
+                            (!success && (!cancelled || g_str_equal (mode, "cancel-no-cleanup"))) ? 1 : 0;
+  g_assert_cmpuint (fixture.warnings->len, ==, expected_warnings);
+  if (g_str_equal (mode, "diagnostics")) {
+    const gchar *prefixes[] = {"native_enrol_runtime=FAILED", "native_enrol=FAILED",
+                               "pipeline_incomplete=", "end_enrol_not_submitted=",
+                               "enrol_authorization=TA_rejected"};
+    for (guint i = 0; i < G_N_ELEMENTS (prefixes); i++)
+      g_assert_nonnull (strstr (g_ptr_array_index (fixture.warnings, i), prefixes[i]));
+  }
+  if (expected_warnings)
+    g_assert_true (g_str_has_prefix (g_ptr_array_index (fixture.warnings, expected_warnings - 1),
+                                    "OEM enroll runtime exit="));
   if (success) {
     g_assert_no_error (fixture.error);
     g_assert_nonnull (fixture.print);
@@ -145,7 +160,7 @@ exercise (gconstpointer data)
       g_assert_cmpint (fp_device_get_nr_enroll_stages (fixture.device), ==, 1);
     } else {
       g_assert_cmpuint (fixture.stages, ==, g_str_equal (mode, "twenty-six") ? 25 : 3);
-      g_assert_cmpuint (fixture.retries, ==, 3);
+      g_assert_cmpuint (fixture.retries, ==, g_str_equal (mode, "normal-lift") ? 0 : 2);
       g_assert_cmpint (fp_device_get_nr_enroll_stages (fixture.device), ==,
                        g_str_equal (mode, "twenty-six") ? 26 : 4);
     }
@@ -168,6 +183,7 @@ exercise (gconstpointer data)
   g_clear_object (&fixture.device);
   g_clear_object (&fixture.cancellable);
   g_main_loop_unref (fixture.loop);
+  g_ptr_array_unref (fixture.warnings);
   g_type_class_unref (klass);
 }
 
@@ -179,6 +195,9 @@ main (int argc, char **argv)
   g_autoptr(GError) error = NULL;
   g_assert_cmpuint (geteuid (), ==, 0);
   g_test_init (&argc, &argv, NULL);
+  /* Capture and assert expected runtime warnings separately from new normal
+   * per-sample MESSAGE logs; unexpected critical/API errors remain fatal. */
+  g_log_set_always_fatal (G_LOG_LEVEL_ERROR | G_LOG_LEVEL_CRITICAL);
   g_assert_true (g_file_get_contents (g_getenv ("FPC_PROVIDER_FIXTURE"), &fixture, &size, &error));
   bundle = g_dir_make_tmp ("fpc-native-api-test-XXXXXX", &error);
   g_assert_no_error (error);
@@ -188,7 +207,7 @@ main (int argc, char **argv)
   g_setenv ("LIUQIN_FPC_OEM_RUNTIME", bundle, TRUE);
   const gchar *cases[] = {"success", "zero", "twenty-six", "early-cleanup", "permissions",
                           "wait-exit", "stderr", "cancel", "cancel-no-cleanup", "existing",
-                          "diagnostics"};
+                          "diagnostics", "normal-lift"};
   for (guint i = 0; i < G_N_ELEMENTS (cases); i++) {
     gchar *name = g_strconcat ("/native-enrol/", cases[i], NULL);
     g_test_add_data_func (name, cases[i], exercise);

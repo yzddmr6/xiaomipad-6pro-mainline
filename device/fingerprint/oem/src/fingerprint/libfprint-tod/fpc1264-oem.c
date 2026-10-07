@@ -209,6 +209,7 @@ enrol_status_line (FpDevice *device, const gchar *line)
     self->enrol_existing = TRUE;
   else if (!self->cancelled &&
            sscanf (line, "enrol_progress_status=%d remaining=%u%c", &status, &remaining, &extra) == 2) {
+    g_message ("OEM enroll sample status=%d remaining=%u", status, remaining);
     /* Positive OEM BIO_ENROL status means sampling continues. Zero is the
      * final sample and is only accepted through the final database result. */
     if (status < 0 || remaining >= 40) {
@@ -232,13 +233,18 @@ enrol_status_line (FpDevice *device, const gchar *line)
      * completed stage even when the OEM remaining count drops by several. */
     while (!self->cancelled && self->enrol_completed < completed)
       fpi_device_enroll_progress (device, ++self->enrol_completed, NULL, NULL);
-  } else if (!self->cancelled && g_str_has_prefix (line, "capture_rejected="))
+  } else if (!self->cancelled && g_str_has_prefix (line, "capture_rejected=")) {
+    if (sscanf (line, "capture_rejected=%d", &status) == 1)
+      g_message ("OEM enroll capture_rejected=%d", status);
     enrol_retry (device, FP_DEVICE_RETRY_GENERAL);
-  else if (!self->cancelled && g_str_has_prefix (line, "READY lift finger")) {
+  } else if (!self->cancelled && g_str_has_prefix (line, "READY lift finger")) {
+    g_message ("OEM enroll phase=lift-ready");
     fpi_device_report_finger_status (device, FP_FINGER_STATUS_PRESENT);
-    enrol_retry (device, FP_DEVICE_RETRY_REMOVE_FINGER);
-  } else if (!self->cancelled && g_str_has_prefix (line, "READY enrol attempt="))
+  } else if (!self->cancelled && g_str_has_prefix (line, "READY enrol attempt=")) {
+    g_message ("OEM enroll phase=down-setup");
     fpi_device_report_finger_status (device, FP_FINGER_STATUS_NEEDED);
+  } else if (!self->cancelled && g_str_has_prefix (line, "READY finger_irq_armed=down"))
+    g_message ("OEM enroll phase=down-ready");
 }
 
 static void enrol_read_line (GObject *source, GAsyncResult *result, gpointer user_data);

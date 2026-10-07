@@ -24,6 +24,7 @@ if mode == "stderr":
     for _ in range(1000):
         print("synthetic ignored diagnostic " + "x" * 128, file=sys.stderr, flush=True)
 print("READY enrol attempt=1: press same finger and hold", flush=True)
+print("READY finger_irq_armed=down press finger now", flush=True)
 remaining = 0 if mode == "zero" else 25 if mode == "twenty-six" else 3
 print(f"enrol_progress_status=1 remaining={remaining}", flush=True)
 if mode == "diagnostics":
@@ -49,9 +50,13 @@ if mode.startswith("cancel"):
     raise SystemExit(1)
 if remaining:
     print("READY lift finger and reposition for next sample", flush=True)
+    print("READY enrol attempt=2: press same finger and hold", flush=True)
+    print("READY finger_irq_armed=down press finger now", flush=True)
     print("enrol_progress_status=1 remaining=2", flush=True)
-    print("enrol_progress_status=7 remaining=2", flush=True)
-    print("capture_rejected=4 enrol_not_sent=1", flush=True)
+    if mode != "normal-lift":
+        print("enrol_progress_status=7 remaining=2", flush=True)
+        print("capture_rejected=4 enrol_not_sent=1", flush=True)
+    print("READY lift finger and reposition for next sample", flush=True)
     print("enrol_progress_status=1 remaining=1", flush=True)
 if mode == "existing":
     print("native_enrol_cleanup=OK", flush=True)
