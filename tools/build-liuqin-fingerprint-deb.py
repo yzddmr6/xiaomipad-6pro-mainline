@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Stage the verified FPC userspace for an offline, first-account installation.
 
-Usage: build-liuqin-fingerprint-deb.py --bundle fingerprint.tar.gz --out DIR --version 0.6.0
+Usage: build-liuqin-fingerprint-deb.py --bundle fingerprint-build-inputs.tar.gz --out DIR --version 0.6.0
 Never runs systemctl, mount, a TA, or target binaries on the build host. Existing
 machine enrollment and template state are not inputs and are not packaged.
 """
@@ -21,7 +21,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 OEM = ROOT / "device/fingerprint/oem"
 DEPLOYMENT = OEM / "src/fingerprint/deployment"
-BUNDLE_SHA256 = "bff5753541ff2c86fee3abcac7b8b2374a30d67d55749c7a4728b55fdefd506d"
+# Public v0.6.0 release attachment, produced by make-fingerprint-build-inputs.py.
+# The original private host archive is not a consumer/build dependency.
+BUNDLE_SHA256 = "7af0e818fe27fcd569959d5f45568aa0e34f19bae78ad40d7a32170b8c8c8852"
+VERIFIED_COMPONENTS = {
+    "fprintd": "463c8b79c99758a610ed7a9b76f22cbaab808e48184f255ecd28bc30e04f25cd",
+    "tod/libfprint-tod-fpc1264-oem.so": "e128383ae639890f6020ca41e3dbcf5ba23e781de432c22edf26f9e00805a0dd",
+    "kernel/fpc1264_spi_diag.ko": "f2580d173c9b54dc8f55357b98fb5833d1be3ef4e8d9f9eda00c2176d2fd0db8",
+}
 KERNEL_RELEASE = "6.17.0-rc1-gfe81794b5e1b"
 RUNTIME_PATH = "usr/local/lib/liuqin-fpc-oem"
 FIRMWARE_NAMES = {"fpcliu.mdt", *(f"fpcliu.b{i:02d}" for i in range(9))}
@@ -37,7 +44,7 @@ def sha(path):
 
 def read_bundle(bundle, destination):
     if sha(bundle) != BUNDLE_SHA256:
-        raise ValueError("input is not the reviewed fingerprint r4 bundle")
+        raise ValueError("input is not the public v0.6.0 fingerprint-build-inputs.tar.gz")
     with tarfile.open(bundle, "r:gz") as archive:
         seen = set()
         for item in archive:
@@ -62,6 +69,8 @@ def prepare_payload(payload, version):
     if (info["kernel_release"] != KERNEL_RELEASE or
             info["enrollment_interface"] != "fprintd" or info["deployment_mode"] != "installed"):
         raise ValueError("release requires the verified FE kernel/native userspace")
+    if any(sha(payload / name) != digest for name, digest in VERIFIED_COMPONENTS.items()):
+        raise ValueError("public input differs from the validated native components")
     module = payload / "kernel/fpc1264_spi_diag.ko"
     if sha(module) != info["kernel_module_sha256"]:
         raise ValueError("module hash mismatch")
@@ -73,10 +82,8 @@ def prepare_payload(payload, version):
     actual = json.loads((payload / "firmware/SHA256.json").read_text())
     if actual != expected or set(expected) != FIRMWARE_NAMES:
         raise ValueError("OEM TA hashes differ from the reviewed stock firmware")
-    for name in FIRMWARE_NAMES:
-        if sha(payload / "firmware" / name) != expected[name]:
-            raise ValueError("input OEM firmware hash mismatch")
-        (payload / "firmware" / name).unlink()
+    if any((payload / "firmware" / name).exists() for name in FIRMWARE_NAMES):
+        raise ValueError("public build inputs must not distribute OEM TA bytes")
     shutil.copyfile(OEM / "firmware/NOTICE", payload / "firmware/NOTICE")
     # Overlay current Python integration only; validated C binaries and their
     # matching C/source archives remain byte-for-byte from the reviewed bundle.

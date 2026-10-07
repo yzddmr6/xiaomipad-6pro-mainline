@@ -98,11 +98,24 @@ initialization or claiming every power-loss/recovery scenario has passed.
 
 ## Build and package
 
-The release image uses the `liuqin-fingerprint` Debian package. Build it from
-the reviewed r4 host bundle, without accessing a device or host services:
+The release image uses the `liuqin-fingerprint` Debian package. Download
+`fingerprint-build-inputs.tar.gz` from the **same v0.6.0 release** (also included
+in its complete release bundle), then build without accessing a device or host
+services. This public archive contains the verified programs, corresponding
+source/dependency materials and fixed TA hashes, with no OEM TA bytes or user
+state; its SHA256 is pinned by the builder.
 
 ~~~sh
-python3 tools/build-liuqin-fingerprint-deb.py --bundle /path/to/fingerprint.tar.gz --out out/fingerprint-debs --version 0.6.0
+python3 tools/build-liuqin-fingerprint-deb.py --bundle /path/to/fingerprint-build-inputs.tar.gz --out out/fingerprint-debs --version 0.6.0
+~~~
+
+`BUILD_INPUTS.json` records the validated userspace's `4d6b22f` revision and
+original input identity. Maintainers can reproduce the public archive from the
+audited internal r4 host bundle using the fixed-metadata transformation below;
+consumers need only the downloadable public archive, not that private input.
+
+~~~sh
+python3 tools/make-fingerprint-build-inputs.py --bundle /path/to/audited-r4/fingerprint.tar.gz --output out/fingerprint-build-inputs.tar.gz
 ~~~
 
 This preserves the verified native binaries and exact FE module, overlays the
