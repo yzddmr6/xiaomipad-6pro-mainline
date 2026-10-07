@@ -23,7 +23,10 @@ def load():
         int.from_bytes((regulator / "regulator-min-microvolt").read_bytes(), "big") != 2960000 or
         int.from_bytes((regulator / "regulator-max-microvolt").read_bytes(), "big") != 3008000):
         raise RuntimeError("Stable FPC voltage range was not verified")
-    for service in ("ssh", "NetworkManager", "gdm", "iio-sensor-proxy"):
+    # A development candidate may use an already verified rescue service.
+    # Keep the normal SSH dependency unless its exact replacement is explicit.
+    control_service = candidate.get("control_service", "ssh")
+    for service in (control_service, "NetworkManager", "gdm", "iio-sensor-proxy"):
         if subprocess.run(["systemctl", "is-active", "--quiet", service]).returncode:
             raise RuntimeError("Desktop/network/rotation must be ready before FPC module load")
     module = here / "kernel/fpc1264_spi_diag.ko"

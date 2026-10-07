@@ -35,10 +35,17 @@ FPRINTD_SOURCE=/path/to/fprintd-v1.94.5 sh tools/build-liuqin-fingerprint-oem.sh
 These commands compile only. Output defaults to out/fingerprint-oem; OUT_DIR
 selects an isolated output. No TA, credential or sensor operation occurs.
 
+For a host cross-build, the TOD/PAM scripts accept a target compiler through
+`CC` and target pkg-config paths. The fprintd script additionally accepts
+`MESON_CROSS_FILE`. Link against the installed target libraries and matching
+TOD headers; a successful build does not establish hardware acceptance.
+
 ## Explicit candidate and installation
 
 Copy candidate-config.example.json outside source and set the actual username,
 UID, exact support-kernel release, source identity and public boot hashes.
+An explicitly prepared development candidate may set `control_service` to
+the verified diagnostic systemd service instead of the default `ssh` service.
 The example describes the accepted stable #2 temporary support boot; it is not
 a product image. Use the module built for that kernel and matching external
 fpcliu.mdt / segment files. No credential or biometric file belongs in firmware.

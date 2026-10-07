@@ -63,7 +63,13 @@ def install():
     candidate_unit += "\n[Service]\nExecStart=\nExecStart=/usr/local/lib/liuqin-fpc-oem/fprintd --no-timeout\n"
     units = Path("/etc/systemd/system")
     (units / "liuqin-fpc-acceptance-fprintd.service").write_text(candidate_unit)
-    shutil.copyfile(destination / "deployment/liuqin-fpc-stable-module.service", units / "liuqin-fpc-stable-module.service")
+    module_unit = (destination / "deployment/liuqin-fpc-stable-module.service").read_text()
+    control_service = info.get("control_service", "ssh").removesuffix(".service") + ".service"
+    (units / "liuqin-fpc-stable-module.service").write_text(module_unit.replace("ssh.service", control_service))
+    # udev must not load the module before the guarded late-load service.
+    modprobe = Path("/etc/modprobe.d")
+    modprobe.mkdir(exist_ok=True)
+    (modprobe / "liuqin-fpc-late-load.conf").write_text("blacklist fpc1264_spi_diag\n")
     dropins = units / "fprintd.service.d"
     dropins.mkdir(exist_ok=True)
     shutil.copyfile(destination / "deployment/fprintd-fpc1264-oem.conf", dropins / "60-liuqin-fpc-oem.conf")

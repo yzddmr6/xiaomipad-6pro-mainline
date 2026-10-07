@@ -15,8 +15,12 @@ mkdir -p "$out"
 python3 "$root/src/fingerprint/fprintd-oem/prepare.py" \
     "$vendor" "$out/source" \
     --patch-output "$out/fprintd-oem-update.patch"
+cross_args=()
+if [[ -n ${MESON_CROSS_FILE:-} ]]; then
+    cross_args=(--cross-file "$MESON_CROSS_FILE")
+fi
 meson setup "$out/build" "$out/source" --prefix=/usr \
-    -Dpam=false -Dman=false -Dgtk_doc=false -Dsystemd=false
+    -Dpam=false -Dman=false -Dgtk_doc=false -Dsystemd=false "${cross_args[@]}"
 meson compile -C "$out/build" fprintd
 cp "$out/build/src/fprintd" "$out/fprintd"
 tar -czf "$out/fprintd-vendor.tar.gz" \
