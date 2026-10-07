@@ -9,16 +9,15 @@ sensor. It uses the normal system authorization dialog and fprintd/libfprint
 progress, cancellation and storage. Normal use does not require a terminal or a
 separate fingerprint application.
 
-As of 2026-10-07, the matching native candidate (`70a4494`) is running on the test
-device. “Fingerprint Login” appears on the native Users page, and a root-driven
-`EnrollStart` → cancel check completed with cleanup. **No completed fingerprint
-template is present yet. Enrollment, same/other-finger matching, persistence,
-lock-screen unlock and cold-boot login remain unverified.** Root API cancellation
-is not proof of the normal user's authorization or full Settings workflow.
+As of 2026-10-07, native Settings enrollment has completed on the known 256 GB
+test unit. Its saved template was retained through installation of the combined
+DP/fingerprint kernel `6.17.0-rc1-gfe81794b5e1b` and userspace `4d6b22f`.
+**Same-finger acceptance, other-finger rejection, native lock-screen unlock and
+fingerprint login after an ordinary boot from tablet storage have passed.**
+System authentication/session signals and the user's confirmation agree.
 
-Earlier contributor results used a different component combination and do not
-establish acceptance of this candidate. Fingerprint support is still an optional
-candidate, not a fully validated capability of every released image.
+This candidate is persistently installed on the test unit but has not been
+released. These results do not imply that existing release images include it.
 
 ## Requirements
 
@@ -29,7 +28,7 @@ checks must not be bypassed.
 
 A temporary RAM boot does not install a kernel for the next power-on. Fingerprint
 availability after reboot requires the matching kernel and modules to be
-persistently installed. That cold-boot path is still awaiting validation.
+persistently installed. That ordinary boot path has passed on this test unit.
 Build and installation details are in the [component reference](../device/fingerprint/oem/README.md).
 
 ## Enroll through Ubuntu Settings
@@ -66,20 +65,21 @@ Gatekeeper/RPMB state; cancellation during that short transaction finishes its
 safe commit before stopping and does not proceed into fingerprint capture.
 A temporary kernel does not make these operations read-only.
 
-## Validation still required
+## Validation scope and remaining work
 
-The current candidate needs a completed native enrollment, same-finger acceptance,
-other-finger rejection, reload of the saved template, native lock-screen unlock
-and fresh-boot GDM login before it can be considered working end to end.
+Native enrollment, template reload, same-finger acceptance, other-finger rejection,
+native lock-screen unlock and GDM login after an ordinary reboot have passed.
+Password login remains available without a separate unlock application.
 
 Verification does not consume the old boot-local 18-hour enrollment authorization
-or ask for the Linux password through the legacy helper. Whether resident
-Keymaster state needs additional initialization after a cold boot remains
-unproven. Cold-boot testing must start at the regular login screen before running
-any manual Keymaster negotiation or setup helper.
+or ask for the Linux password through the legacy helper. The reboot test started
+at the regular login screen without any manual Keymaster negotiation or setup
+helper. Fingerprint login does not decrypt the password-encrypted GNOME login
+keyring; applications accessing its secrets may still request the keyring password.
 
 Placement sensitivity, latency, suspend/resume, long-term reliability and
-Android dual-boot coexistence are not established for this candidate.
+multiple fingers/accounts and fingerprint secure-storage coexistence after an
+Android round trip are not established for this candidate.
 
 ## Appendix: recovery and legacy diagnostics
 

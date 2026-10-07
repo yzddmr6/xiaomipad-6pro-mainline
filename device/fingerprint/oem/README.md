@@ -10,27 +10,27 @@ provides the standard GDM login and lock-screen verification interface. It does
 not add a separate everyday unlock application or modify GNOME Settings.
 
 The current candidate supports **one configured Linux account and one finger**.
-The native interface is implemented, but completed enrollment and unlocking on
-the current device remain unverified. The default image/kernel lock is not
-changed by this optional component.
+Native enrollment and login/unlock have passed on the test unit as described
+below. The default image/kernel lock is not changed by this optional component.
 
 ## Current validation boundary
 
-As of 2026-10-07, userspace candidate `70a4494` has been deployed with its matching
-support kernel. The native GNOME Users page displays “Fingerprint Login”, and a
-root-driven fprintd `EnrollStart` followed by cancellation completed with runtime
-cleanup. The kernel/TEE/FPC device and required userspace services are available.
+As of 2026-10-07, native Settings enrollment completed on the b87 support kernel.
+The saved template was retained through installation of userspace `4d6b22f` and
+the combined DP/fingerprint kernel `6.17.0-rc1-gfe81794b5e1b`. Same-finger acceptance,
+other-finger rejection and native lock-screen unlock passed on that combination.
+After writing the matching boot images and modules, an ordinary reboot also
+reached the desktop through `gdm-fingerprint`, without entering the login password
+or manually warming Keymaster/TEE. DP output was subsequently confirmed on the
+same persistent boot. This is one configured account/finger on the known 256 GB
+test unit, not a release or a claim covering other devices and adapters.
 
-These observations do **not** establish normal-user Polkit authorization,
-completed fingerprint enrollment, a persisted template, same-finger acceptance,
-other-finger rejection, native lock-screen unlock or cold-boot GDM login. No
-completed template was present at this checkpoint. Remaining device validation
-must cover those operations, including cancellation through the Settings UI.
-
-The contributor's earlier desktop-r3 enrollment/unlock results used another
-component combination. They remain historical evidence and are not acceptance
-of this native candidate. The former terminal helper also collected samples on
-this device without completing a template; sampling alone is not enrollment.
+The fprintd service uses `UMask=0077`: native enrollment must create root-owned
+mode-0600 templates accepted by the adaptive-update writer. Earlier development
+templates created as 0644 need their permissions tightened before matching;
+their contents and credentials must be preserved. Do not relax the writer's
+ownership or mode checks. Storage failures now log only a fixed phase and error
+domain/code, instead of silently turning a sensor match into authentication failure.
 
 ## User workflow and authorization
 
@@ -86,14 +86,11 @@ string or bypassing module hashes is not a supported installation method.
 
 Verification loads the persisted fprintd database through the OEM matcher. It
 does not call the old PAM credential helper or consume the old boot-local
-18-hour prepared-input key. However, successful cold-boot verification has not
-been demonstrated. The verify path calls Keymaster `0x205` directly; unlike the
+18-hour prepared-input key. Verification after an ordinary reboot has passed
+without a manual setup step. The verify path calls Keymaster `0x205` directly; unlike the
 Gatekeeper enrollment client, it does not send the `0x200`/`0x207` negotiation
-sequence. Source inspection alone cannot determine whether resident TA state
-requires that sequence after a cold boot. Test GDM verification after a fresh
-boot **before** manually running any Keymaster negotiation or setup helper;
-do not add speculative initialization or count a manually warmed test as a
-cold-boot pass.
+sequence. The observed reboot test does not justify adding speculative
+initialization or claiming every power-loss/recovery scenario has passed.
 
 ## Build and package
 
@@ -170,8 +167,8 @@ verification while preserving its state and password login, an administrator
 can mask and stop `fprintd.service`; no credential reset is needed.
 
 Current-device completion, persistence, same/other-finger behavior and native
-login/unlock remain pending as listed above. Placement sensitivity, latency,
-identify-status 4/12 retries, suspend/resume, long-term reliability and dual-boot
+login/unlock passed within the scope above. Placement sensitivity, latency,
+identify-status 4/12 retry frequency, suspend/resume, long-term reliability and dual-boot
 secure-storage coexistence are not established for this candidate. The current
 support DTB has booted and the FPC module loaded without observed GENI faults in
 that window; this does not resolve the contributor's historical GENI corruption

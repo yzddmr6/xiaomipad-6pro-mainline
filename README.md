@@ -18,7 +18,7 @@ This project is only for the **Xiaomi Pad 6 Pro (liuqin, SM8475)**. Other Xiaomi
 - **Data loss**: unlocking the bootloader and performing an initial installation erase user data. Back up your files first.
 - **Storage and layout**: installation has been tested on one known **256 GB partition layout**, not every 256 GB device. Other capacities and modified partition layouts are unverified and unsupported. The installer repartitions the tail of the disk. In the dual-boot layout both systems boot from slot A; the Linux-only layout places Ubuntu in slot B. Do not bypass the checks.
 - **Validation scope**: initial installation, first boot, rotation, touch, the magnetic keyboard (including its touchpad), audio and USB OTG host mode (wired mouse) have been tested. Android recovery still requires separate device validation.
-- **Installation layout**: the installer offers a Linux-only layout and a dual-boot layout that keeps a stock Android. In the dual-boot layout both systems boot from slot A, and switching writes the other system's boot image into `boot_a`. An earlier revision of the dual-boot layout, which booted Ubuntu from slot B, has been installed on the 256 GB unit; the current slot-A arrangement, switching between the systems, Android's first boot and KernelSU are not yet validated on hardware, and the Linux-only layout has not been installed on hardware. See the [installation steps](docs/INSTALL-TESTING.md).
+- **Installation layout**: the installer offers a Linux-only layout and a dual-boot layout that keeps stock Android. Both systems use slot A and switching writes the other system's image into `boot_a`. The known 256 GB unit has passed slot-A Ubuntu startup, Android's first boot after restoring stock firmware, and a return to Ubuntu through the KernelSU module script under a debug Android boot. The Manager WebUI button, automatic KernelSU activation under an ordinary Android boot, and the Linux-only layout remain unverified. See the [installation steps](docs/INSTALL-TESTING.md).
 - **Recovery preparation**: obtain the matching stock firmware and read the [data and recovery instructions](docs/FLASHING.md#data-and-recovery) before installing.
 - **Hardware limitations**: some features are incomplete. Review the hardware support table below.
 
@@ -45,6 +45,8 @@ and device trees; other batches, capacities and accessory combinations are not i
 
 ✅ Working · 🟡 Partial · ❌ Unsupported · 🧪 Unverified
 
+The new DP and fingerprint results apply to the development candidate persistently installed on 2026-10-07; it has not been added to existing releases.
+
 ### Platform, Display and Input
 
 | Feature | Component / Implementation | Status | Scope and Limitations |
@@ -56,6 +58,7 @@ and device trees; other batches, capacities and accessory combinations are not i
 | Manual brightness | Kinetic KTZ8866 backlight | ✅ Working | Backlight and manual brightness adjustment |
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Driver selects the firmware by panel module; touch input, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
+| Fingerprint | FPC1264 / libfprint TOD / fprintd | 🟡 Development candidate passed | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; one account and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
 
@@ -71,7 +74,7 @@ and device trees; other batches, capacities and accessory combinations are not i
 | USB reconnect after charging | USB-C / USB gadget | 🟡 Partial | Since v0.1.1 the UCSI typec controller negotiates automatically; a dedicated retest is pending |
 | USB 3.x SuperSpeed | USB controller / PHY | 🧪 Unverified | Since v0.1.1 the SM8475 PHY tables and controller are in place; SuperSpeed peripheral enumeration untested |
 | USB OTG / host mode | USB-C data-role switching | ✅ Working | Since v0.1.1 UCSI negotiates the role automatically; wired mouse validated, USB drives and docks pending |
-| USB-C external display | Video output / docks | 🧪 Unverified | External-monitor output has not been tested |
+| USB-C external display | DisplayPort Alt Mode / FSA4480 | 🟡 Development candidate passed | External picture, internal-display recovery after unplugging, and USB recovery when reconnected to the computer; other docks, DP audio and high refresh rates remain unverified |
 
 ### Audio, Video and Sensors
 
@@ -94,7 +97,7 @@ and device trees; other batches, capacities and accessory combinations are not i
 
 | Feature | Component / Implementation | Status | Scope and Limitations |
 |---|---|---|---|
-| Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume; password-lock authentication not separately tested |
+| Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume; native lock-screen authentication verified in the development candidate |
 | Battery / basic charging | qcom_battmgr / UPower | ✅ Working | Capacity reporting, charging state and basic wall charging |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; heavy workloads may still discharge the battery |
 | Xiaomi proprietary fast charging | Vendor charging protocol | 🟡 Partial | Charger authentication integrated; battery authentication verified and PD adapters reach 9 V / 2 A. MiPPS and standard PPS fast charging await adapter validation |
