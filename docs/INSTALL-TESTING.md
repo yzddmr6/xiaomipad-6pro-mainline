@@ -10,7 +10,7 @@ unit: the partition table was split, Ubuntu was installed into `linux_root`
 with `/home` on `linux_home`, and Ubuntu booted from slot B. The current
 revision boots both systems from slot A and switches between them by
 exchanging the boot image in `boot_a` (see
-[Switching Between the Systems](#switching-between-the-systems)). The current revision has been installed on the same unit with `--layout dual --keep-home` (v0.5.0): the reinstall kept `/home`, Ubuntu boots from slot A, and `liuqin-switch verify` confirms the switch store. The switch in either direction, Android's first boot and KernelSU have not yet been tested on hardware. The Linux-only layout uses the same
+[Switching Between the Systems](#switching-between-the-systems)). v0.6.0 passed a complete `--layout dual --keep-home --no-backup` installation, initial setup and user acceptance on the same 256 GB unit. Both boot partitions matched the expected image and the existing `/home` was retained. Earlier tests covered Android's first boot after firmware repair and the KernelSU return script under a debug Android boot; automatic KernelSU activation under an ordinary Android boot and the WebUI button remain unverified. The Linux-only layout uses the same
 layout engine but has not been installed on hardware. Treat both as attended
 experiments.
 
@@ -425,3 +425,11 @@ remain. The original ROM is an upstream input, not duplicated in this repository
 
 Android recovery still requires independent device testing. Successful Ubuntu
 installation does not establish that Android recovery has been validated.
+
+## Explicitly skipping backups during reinstallation
+
+On an existing supported split layout, `--no-backup` can replace `--backup PATH` in a `--keep-home` reinstall command. It explicitly skips boot, persist and GPT backups; it cannot be used for initial partitioning or restoring a partition table. Backups remain the default.
+
+`--keep-home` retains only the separate `/home` filesystem. The Ubuntu system partition is recreated, removing its accounts and fingerprint templates/credentials; create the account and enroll the finger again after installation.
+
+The complete bundle also includes `liuqin_boot_ubuntu-v0.3.zip`, `dualboot-tools.zip` and the public fingerprint build input. Normal fingerprint use needs no separate application. Extract `dualboot-tools.zip` to use the documented pinned KernelSU download and Android boot patching commands.

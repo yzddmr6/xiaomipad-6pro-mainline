@@ -179,7 +179,8 @@ def main():
             shutil.copytree(out / 'bundle', destination,
                             ignore=shutil.ignore_patterns('rootfs.tar.gz'))
             metadata = json.loads((destination / 'bundle.json').read_text())
-            for name in ('INSTALL-TESTING.md', 'INSTALL-TESTING.zh-CN.md'):
+            for name in ('INSTALL-TESTING.md', 'INSTALL-TESTING.zh-CN.md',
+                         'FINGERPRINT.md', 'FINGERPRINT.zh-CN.md'):
                 shutil.copyfile(project / 'docs' / name, destination / name)
                 metadata['files'][name] = hashlib.sha256((destination / name).read_bytes()).hexdigest()
             if args.device_tested:

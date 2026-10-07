@@ -16,14 +16,14 @@ DP/fingerprint kernel `6.17.0-rc1-gfe81794b5e1b` and userspace `4d6b22f`.
 fingerprint login after an ordinary boot from tablet storage have passed.**
 System authentication/session signals and the user's confirmation agree.
 
-This candidate is persistently installed on the test unit but has not been
-released. These results do not imply that existing release images include it.
+The v0.6.0 complete installation bundle includes these components and has passed
+full installation, initial setup and user acceptance on the test unit.
 
 ## Requirements
 
-Use a bundle prepared for the actual Linux username/UID, together with its exact
-support kernel, FPC module, device tree and OEM firmware. The current scope is
-**one configured Linux account and one finger**. Kernel/module hashes and wiring
+v0.6.0 automatically supports the first local account created by initial setup
+(UID 1000), without a preconfigured username. Use the exact matching kernel, FPC
+module, device tree and OEM firmware. The current scope is **one finger for that account**. Kernel/module hashes and wiring
 checks must not be bypassed.
 
 A temporary RAM boot does not install a kernel for the next power-on. Fingerprint

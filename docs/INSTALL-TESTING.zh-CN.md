@@ -9,7 +9,7 @@
 早先版本的双系统布局已在 256 GB 机型完成真机安装：分区表完成划分，Ubuntu 安装到
 `linux_root`、`/home` 位于 `linux_home`，并从 B 槽正常启动。当前版本让两个系统都从 A 槽启动，
 通过更换 `boot_a` 中的 boot 镜像在两者之间切换（见[双系统切换](#双系统切换)）。
-这一方案已在同一台 256 GB 机型上以 `--layout dual --keep-home` 完成真机验证（v0.5.0）：重装保留了 `/home`，Ubuntu 从 A 槽启动，`liuqin-switch verify` 确认切换存储完整；两个方向的切换、Android 的首次启动以及 KernelSU 尚未完成真机验证。
+v0.6.0 已在同一台 256 GB 机型以 `--layout dual --keep-home --no-backup` 完成完整安装、首次设置和用户功能确认；A/B 启动镜像回读一致，原 `/home` 保留。此前已验证原厂固件修复后的 Android 首次启动及调试 Android 下 KernelSU 脚本往返；普通 Android 下的 KernelSU 自动加载与 WebUI 按钮仍未单独验收。
 单系统布局与双系统共用同一布局引擎，但尚未在真机上安装。两者均应按有人在场的实验流程对待。
 
 ## 分区布局
@@ -334,3 +334,11 @@ sudo liuqin-rescue on
 原厂 ROM 从上游取得，不在本项目重复托管。
 
 Android 恢复路线仍待独立真机验证，不应将 Ubuntu 安装通过等同于恢复已验证。
+
+## 明确跳过备份的重装
+
+已有受支持的 split 布局时，可在 `--keep-home` 重装命令中用 `--no-backup` 替代 `--backup 路径`，明确跳过启动分区、persist 与 GPT 备份。该选项不允许首次分区或恢复分区表。默认安装仍执行备份。
+
+`--keep-home` 只保留独立 `/home`，仍会重建 Ubuntu 系统分区，旧账号配置与系统中的指纹模板/凭据会清除；首次设置时需重新创建账号并录入指纹。
+
+本版完整包同时附带 `liuqin_boot_ubuntu-v0.3.zip`、`dualboot-tools.zip` 和公开指纹构建输入；正常使用指纹无需再安装单独应用。解压 `dualboot-tools.zip` 后可按本文命令获取、校验 KernelSU 上游组件并生成 Android boot。
