@@ -20,6 +20,7 @@ fp_wait_enter() {
     unset fp_discarded_input
     return 1
 }
+stty -echo || exit 2
 printf '指纹录入\n\n完成一次设置，后续在 Ubuntu 登录和锁屏界面使用指纹。\n'
 printf '请先准备好平板。按回车开始，随后在密码提示出现时输入本机登录密码。\n'
 printf '密码仅供本机认证，不显示、不写入日志。现在不要输入密码。\n'
@@ -29,6 +30,7 @@ fp_restore_tty
 printf '\n'
 pkexec /usr/local/lib/liuqin-fpc-oem/acceptance.py
 fp_accept_status=$?
+stty -echo || exit "$fp_accept_status"
 printf '\n指纹录入已结束（退出码 %s）。请查看上方结果，按回车关闭窗口。\n' "$fp_accept_status"
 fp_wait_enter || :
 exit "$fp_accept_status"
