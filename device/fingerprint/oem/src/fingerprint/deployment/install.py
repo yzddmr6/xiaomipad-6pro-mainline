@@ -85,6 +85,10 @@ def install():
         ' && subject.local && subject.active) return polkit.Result.YES;\n});\n')
     shutil.copyfile(destination / "deployment/liuqin-fingerprint-accept.desktop",
                     Path("/usr/share/applications/liuqin-fingerprint-accept.desktop"))
+    terminal_entry = Path("/usr/local/bin/liuqin-fingerprint-accept-terminal")
+    shutil.copyfile(destination / "deployment/liuqin-fingerprint-accept-terminal", terminal_entry)
+    terminal_entry.chmod(0o755)
+    os.chown(terminal_entry, 0, 0)
     launcher = Path("/usr/local/bin/liuqin-fingerprint-accept")
     if launcher.exists() or launcher.is_symlink():
         if not launcher.is_symlink() or launcher.resolve() != destination / "acceptance.py":

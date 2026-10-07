@@ -2,7 +2,7 @@
 Type=Application
 Name=指纹最终验收
 Comment=正常录入、同指与异指验证后启用桌面指纹
-Exec=pkexec /usr/local/lib/liuqin-fpc-oem/acceptance.py
+Exec=/usr/local/bin/liuqin-fingerprint-accept-terminal
 Icon=fingerprint
 Terminal=true
 Categories=Settings;Security;

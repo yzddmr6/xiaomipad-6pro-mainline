@@ -1,0 +1,9 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Keep the interactive PAM flow on its terminal and leave its result visible.
+trap ':' INT
+pkexec /usr/local/lib/liuqin-fpc-oem/acceptance.py
+fp_accept_status=$?
+printf '\n指纹流程已结束（退出码 %s）。请查看上方结果，按回车关闭窗口。\n' "$fp_accept_status"
+IFS= read -r fp_accept_close
+exit "$fp_accept_status"
