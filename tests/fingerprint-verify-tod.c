@@ -83,6 +83,7 @@ main (int argc, char **argv)
   g_setenv ("LIUQIN_FPC_OEM_RUNTIME", bundle, TRUE);
   const gchar *cases[] = {"capture-wait", "transport-error", "unknown-status",
                           "missing-cleanup", "timed-out", "cancelled",
+                          "tee-error-after-capture",
                           "identify-retry", "matched", "not-matched"};
   for (guint i = 0; i < G_N_ELEMENTS (cases); i++) {
     g_autofree gchar *name = g_strconcat ("/native-verify/", cases[i], NULL);

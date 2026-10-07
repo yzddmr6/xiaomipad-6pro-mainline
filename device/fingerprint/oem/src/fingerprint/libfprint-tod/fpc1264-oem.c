@@ -434,8 +434,9 @@ verify_finished (GObject *source, GAsyncResult *result, gpointer user_data)
    * The client emits it on stderr. Keep transport/unknown statuses fatal.
    * Existing inconclusive identify results follow successful DB export.
    * None authorize a match; let fprintd request a fresh press after cleanup. */
-  gboolean capture_wait = diagnostic &&
-    strstr (diagnostic, "match_incomplete=capture_rejected app_status=1\n");
+  /* Additional stderr diagnostics can describe a later TEE/cleanup failure. */
+  gboolean capture_wait = g_strcmp0 (diagnostic,
+    "match_incomplete=capture_rejected app_status=1\n") == 0;
   gboolean runtime_stopped = diagnostic &&
     (strstr (diagnostic, "oem_runtime_timed_out=1\n") ||
      strstr (diagnostic, "oem_runtime_cancelled=1\n"));
