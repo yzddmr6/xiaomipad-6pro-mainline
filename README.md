@@ -2,6 +2,17 @@
 
 Run Ubuntu 26.04 on the Xiaomi Pad 6 Pro, with the GNOME desktop and a device-adapted kernel based on upstream Linux. [中文](README.zh-CN.md)
 
+## Latest Release and Recent Updates
+
+**[v0.6.0](https://github.com/yzddmr6/xiaomipad-6pro-mainline/releases/tag/v0.6.0)** is now a full release. Native fingerprint support, DP output and dual-boot fixes are included in one installation bundle. Installation, initial setup and user acceptance passed on the known 256 GB test unit.
+
+Main updates since the initial open-source release:
+
+- **Native fingerprint login**: enroll in Ubuntu Settings → Users, then unlock the screen or log in after boot. Same-finger acceptance and other-finger rejection are verified; currently limited to the first account and one finger.
+- **DP external display**: external picture, internal-display recovery after unplugging and USB recovery on reconnect are verified. Other adapters, DP audio and high refresh rates remain unverified.
+- **Dual boot and camera**: added an installation layout that preserves Android and a KernelSU module to return to Ubuntu, fixed startup failures caused by stock firmware, added experimental rear-camera support and fixed the speakers. See the installation notes below for dual-boot validation scope and the support table for camera limitations.
+- **Input, recording and charging**: fixed the magnetic keyboard touchpad, added touch-panel variants, USB OTG, single-microphone recording and charging authentication. The kernel configuration required by Waydroid is included; Waydroid remains experimental without end-to-end device acceptance.
+
 ## 📮 Follow & Discuss
 
 Progress updates, usage tips and AI discussions (primarily in Chinese) are published here first — issue feedback is welcome.
@@ -17,7 +28,7 @@ This project is only for the **Xiaomi Pad 6 Pro (liuqin, SM8475)**. Other Xiaomi
 
 - **Data loss**: unlocking the bootloader and performing an initial installation erase user data. Back up your files first.
 - **Storage and layout**: installation has been tested on one known **256 GB partition layout**, not every 256 GB device. Other capacities and modified partition layouts are unverified and unsupported. The installer repartitions the tail of the disk. In the dual-boot layout both systems boot from slot A; the Linux-only layout places Ubuntu in slot B. Do not bypass the checks.
-- **Validation scope**: initial installation, first boot, rotation, touch, the magnetic keyboard (including its touchpad), audio and USB OTG host mode (wired mouse) have been tested. Android recovery still requires separate device validation.
+- **Validation scope**: installation and initial setup, rotation, touch, the magnetic keyboard (including its touchpad), speakers, single-microphone recording, USB OTG host mode (wired mouse), native fingerprint login and DP output have device-test evidence. See the table below for each feature's scope; not every combination is retested with every release. Android recovery still requires separate device validation.
 - **Installation layout**: the installer offers a Linux-only layout and a dual-boot layout that keeps stock Android. Both systems use slot A and switching writes the other system's image into `boot_a`. The known 256 GB unit has passed slot-A Ubuntu startup, Android's first boot after restoring stock firmware, and a return to Ubuntu through the KernelSU module script under a debug Android boot. The Manager WebUI button, automatic KernelSU activation under an ordinary Android boot, and the Linux-only layout remain unverified. See the [installation steps](docs/INSTALL-TESTING.md).
 - **Recovery preparation**: obtain the matching stock firmware and read the [data and recovery instructions](docs/FLASHING.md#data-and-recovery) before installing.
 - **Hardware limitations**: some features are incomplete. Review the hardware support table below.
@@ -58,7 +69,7 @@ v0.6.0 includes DP and native fingerprint support in the complete installation b
 | Manual brightness | Kinetic KTZ8866 backlight | ✅ Working | Backlight and manual brightness adjustment |
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Driver selects the firmware by panel module; touch input, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
-| Fingerprint | FPC1264 / libfprint TOD / fprintd | 🟡 Verified | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; one account and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
+| Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; currently limited to the first account (UID 1000) and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
 
@@ -74,14 +85,14 @@ v0.6.0 includes DP and native fingerprint support in the complete installation b
 | USB reconnect after charging | USB-C / USB gadget | 🟡 Partial | Since v0.1.1 the UCSI typec controller negotiates automatically; a dedicated retest is pending |
 | USB 3.x SuperSpeed | USB controller / PHY | 🧪 Unverified | Since v0.1.1 the SM8475 PHY tables and controller are in place; SuperSpeed peripheral enumeration untested |
 | USB OTG / host mode | USB-C data-role switching | ✅ Working | Since v0.1.1 UCSI negotiates the role automatically; wired mouse validated, USB drives and docks pending |
-| USB-C external display | DisplayPort Alt Mode / FSA4480 | 🟡 Verified | External picture, internal-display recovery after unplugging, and USB recovery when reconnected to the computer; other docks, DP audio and high refresh rates remain unverified |
+| USB-C external display | DisplayPort Alt Mode / FSA4480 | ✅ Working | External picture, internal-display recovery after unplugging, and USB recovery when reconnected to the computer are verified with the tested monitor/adapter combination; other docks, DP audio and high refresh rates remain unverified |
 
 ### Audio, Video and Sensors
 
 | Feature | Component / Implementation | Status | Scope and Limitations |
 |---|---|---|---|
 | Four speakers | 4 × Cirrus Logic CS35L41 / AudioReach | ✅ Working | Stereo playback and volume control with per-device calibration; tuning continues |
-| Internal microphone | WCD938x AMIC1 over SoundWire → LPASS TX macro → ADSP codec DMA | ✅ Working | Mono 48 kHz capture through the UCM "Mic" device; validated on hardware from a RAM-booted build of this branch. The other three mics and any noise suppression are not wired yet |
+| Internal microphone | WCD938x AMIC1 over SoundWire → LPASS TX macro → ADSP codec DMA | ✅ Working | Mono 48 kHz recording available since v0.3.0 and validated on hardware; the other three mics and noise suppression are not wired yet |
 | H.264 hardware decoding | Qualcomm Iris2 / V4L2 | ✅ Working | Userspace decoding verified; not evidence of browser integration |
 | Other decoding formats | Iris / V4L2 | 🧪 Unverified | HEVC, VP9 and other formats not individually validated |
 | Browser hardware decoding | Browser / V4L2 integration | 🧪 Unverified | Video playback alone does not prove hardware decoding |
