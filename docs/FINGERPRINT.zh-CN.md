@@ -37,16 +37,10 @@ DTB 尚未通过真机启动验收。
 sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py
 ~~~
 
-全新的 Linux 账号没有现有 Gatekeeper handle 时，在匹配的支持内核上显式
-初始化一次凭据：
-
-~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/user_credentials.py --create "$USER"
-~~~
-
-该入口先验证 Linux 密码，再通过正常 Gatekeeper 链创建账号凭据。已有
-handle 的账号跳过此步骤；不要为修复匹配失败重复创建，也不要删除不确定
-状态标记来强制重创身份。
+全新的 Linux 账号直接打开上述入口即可：窗口先验证一次 Linux 密码，再通过
+正常 Gatekeeper 链创建账号凭据，并用内核内存中的一次性授权继续录入。
+已有 handle 的账号直接复用；不要为修复匹配失败重复创建，也不要删除
+不确定状态标记来强制重创身份。首次设置及录入会写入安全存储和本地模板。
 
 需要凭据输入时，按正常 Linux 密码提示操作。已有持久模板会直接复用，
 不通过重复录入来排查匹配或打包问题。

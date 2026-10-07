@@ -134,7 +134,6 @@ def main():
     if not prints:
         if options.verify:
             raise RuntimeError("No accepted OEM template is available; run the normal acceptance entry")
-        print("请正常按放同一根手指，按提示调整接触位置，直到录入完成。", flush=True)
         prepared = Path("/run/liuqin-fpc-oem-runtime") / ("acceptance-" + user + ".json")
         if prepared.exists():
             import time
@@ -142,6 +141,15 @@ def main():
             if metadata.get("expires",0) <= time.time():
                 from acceptance_input import discard
                 discard(user)
+        from user_credentials import native_account_uid
+        state = Path("/var/lib/liuqin-fingerprint/native")
+        native_uid = native_account_uid(state, account.pw_uid)
+        if not os.path.lexists(state / str(native_uid) / "gatekeeper.handle"):
+            if prepared.exists():
+                raise RuntimeError("Prepared input has no persistent credential; preserve the existing state")
+            print("首次设置：请输入当前 Linux 密码，随后在本窗口录入指纹。", flush=True)
+            run(sys.executable, str(here / "user_credentials.py"), "--create-and-prepare-acceptance", user)
+        print("请正常按放同一根手指，按提示调整接触位置，直到录入完成。", flush=True)
         mode = "--enrol-prepared" if prepared.exists() else "--enrol"
         run(sys.executable, str(here / "enrol_publish.py"), mode, user, options.finger)
         prints = [store / format(FINGERS.index(options.finger) + 1, "x")]

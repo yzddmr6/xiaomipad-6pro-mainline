@@ -61,22 +61,32 @@ def sealed_memory(data):
         raise
 
 
+def native_account_uid(state, linux_uid):
+    """Reuse any established legacy account, including uncertain creation."""
+    legacy_uid = 0x40000000 | linux_uid
+    if any(os.path.lexists(state / str(legacy_uid) / name) for name in
+           ("gatekeeper.handle", "input-parameters.json", "create.requested")):
+        return legacy_uid
+    return 0x50000000 | linux_uid
+
+
 def main():
     arguments = sys.argv[1:]
     state = Path("/var/lib/liuqin-fingerprint/native")
     if len(arguments) >= 2 and arguments[0] == "--state-dir":
         state = Path(arguments[1])
         arguments = arguments[2:]
-    create = len(arguments) == 2 and arguments[0] == "--create"
+    create_and_prepare = len(arguments) == 2 and arguments[0] == "--create-and-prepare-acceptance"
+    create = create_and_prepare or (len(arguments) == 2 and arguments[0] == "--create")
     preflight = len(arguments) == 2 and arguments[0] in ("--auth-preflight", "--auth-preflight-renew")
     sync_password = len(arguments) == 2 and arguments[0] == "--sync-password"
-    prepare_acceptance = len(arguments) == 2 and arguments[0] == "--prepare-acceptance"
+    prepare_acceptance = create_and_prepare or (len(arguments) == 2 and arguments[0] == "--prepare-acceptance")
     prepared_enrol = len(arguments) == 3 and arguments[0] == "--enrol-prepared"
     enrol = len(arguments) == 3 and arguments[0] == "--enrol"
     enrol_existing = len(arguments) == 4 and arguments[0] == "--enrol-existing"
     if os.geteuid() != 0 or not state.is_absolute() or not (create or preflight or sync_password or enrol or enrol_existing or prepare_acceptance or prepared_enrol):
         print("usage (root, interactive terminal): user_credentials.py [--state-dir ABSOLUTE_PRIVATE_DIRECTORY] "
-              "--create LINUX_USERNAME | --auth-preflight[-renew] LINUX_USERNAME | --sync-password LINUX_USERNAME | "
+              "--create[-and-prepare-acceptance] LINUX_USERNAME | --auth-preflight[-renew] LINUX_USERNAME | --sync-password LINUX_USERNAME | "
               "--prepare-acceptance LINUX_USERNAME | --enrol-prepared LINUX_USERNAME OUTPUT_DATABASE | "
               "--enrol LINUX_USERNAME OUTPUT_DATABASE | "
               "--enrol-existing LINUX_USERNAME INPUT_DATABASE OUTPUT_DATABASE", file=sys.stderr)
@@ -117,11 +127,7 @@ def main():
         # Diagnostic clients historically occupied 0x40000000 | POSIX UID.
         # First human setup uses its own range, without recreating that SID.
         # A previously persisted human identity in the old range is reused.
-        legacy_uid = 0x40000000 | account_info.pw_uid
-        uid = 0x50000000 | account_info.pw_uid
-        if any(os.path.lexists(state / str(legacy_uid) / name) for name in
-               ("gatekeeper.handle", "input-parameters.json", "create.requested")):
-            uid = legacy_uid
+        uid = native_account_uid(state, account_info.pw_uid)
         here = Path(__file__).resolve().parent
         helper = here / "pam-input"
         for path in (here, helper, here / "native_credentials.py"):

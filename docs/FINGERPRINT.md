@@ -47,12 +47,11 @@ local authorisation. A terminal can also use:
 sudo /usr/local/lib/liuqin-fpc-oem/acceptance.py
 ~~~
 
-A new Linux account without an existing Gatekeeper handle needs explicit
-credential setup once, after booting the matching support kernel:
-
-~~~sh
-sudo /usr/local/lib/liuqin-fpc-oem/user_credentials.py --create "$USER"
-~~~
+A new Linux account can use the same acceptance launcher for first-time setup,
+after booting the matching support kernel. The launcher uses one
+PAM password prompt and boot-local, one-use kernel-memory authorization for
+the subsequent enrolment. Credential creation and enrolment write secure
+storage and the local template.
 
 This authenticates the Linux password and creates that account's credential
 through the normal Gatekeeper chain. Existing handles are preserved: do not
