@@ -430,11 +430,18 @@ verify_finished (GObject *source, GAsyncResult *result, gpointer user_data)
   gboolean missed = output && strstr (output, "match_result=not_matched desktop_authentication=disabled\n");
   gboolean cancelled = self->cancelled || fpi_device_action_is_cancelled (device);
   gboolean valid_result = cleaned && ((status == 0 && matched) || (status == 3 && missed));
-  /* The OEM client only emits these inconclusive results after an ordinary
-   * identify response and successful DB export. They never authorize a match.
-   * Finish this cleaned attempt and let fprintd request a fresh press. */
-  gboolean retry_scan = cleaned && status == 1 && !matched && !missed && output &&
-    (strstr (output, "match_result=inconclusive identify_app_status=4\n") ||
+  /* CAPTURE's WAIT_TIME is an ordinary unsuccessful sample, before identify.
+   * The client emits it on stderr. Keep transport/unknown statuses fatal.
+   * Existing inconclusive identify results follow successful DB export.
+   * None authorize a match; let fprintd request a fresh press after cleanup. */
+  gboolean capture_wait = diagnostic &&
+    strstr (diagnostic, "match_incomplete=capture_rejected app_status=1\n");
+  gboolean runtime_stopped = diagnostic &&
+    (strstr (diagnostic, "oem_runtime_timed_out=1\n") ||
+     strstr (diagnostic, "oem_runtime_cancelled=1\n"));
+  gboolean retry_scan = cleaned && status == 1 && !runtime_stopped && !matched && !missed && output &&
+    (capture_wait ||
+     strstr (output, "match_result=inconclusive identify_app_status=4\n") ||
      strstr (output, "match_result=inconclusive identify_app_status=12\n"));
   if (!cancelled && valid_result && status == 0 &&
       !accept_updated_database (self, output && strstr (output, "database_update_required=1\n"), &error))
