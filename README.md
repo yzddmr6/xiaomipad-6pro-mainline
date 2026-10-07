@@ -45,7 +45,7 @@ and device trees; other batches, capacities and accessory combinations are not i
 
 ✅ Working · 🟡 Partial · ❌ Unsupported · 🧪 Unverified
 
-The new DP and fingerprint results apply to the development candidate persistently installed on 2026-10-07; it has not been added to existing releases.
+v0.6.0 includes DP and native fingerprint support in the complete installation bundle. Installation, initial setup and user acceptance passed on the known 256 GB test unit.
 
 ### Platform, Display and Input
 
@@ -58,7 +58,7 @@ The new DP and fingerprint results apply to the development candidate persistent
 | Manual brightness | Kinetic KTZ8866 backlight | ✅ Working | Backlight and manual brightness adjustment |
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Driver selects the firmware by panel module; touch input, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
-| Fingerprint | FPC1264 / libfprint TOD / fprintd | 🟡 Development candidate passed | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; one account and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
+| Fingerprint | FPC1264 / libfprint TOD / fprintd | 🟡 Verified | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; one account and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
 
@@ -74,7 +74,7 @@ The new DP and fingerprint results apply to the development candidate persistent
 | USB reconnect after charging | USB-C / USB gadget | 🟡 Partial | Since v0.1.1 the UCSI typec controller negotiates automatically; a dedicated retest is pending |
 | USB 3.x SuperSpeed | USB controller / PHY | 🧪 Unverified | Since v0.1.1 the SM8475 PHY tables and controller are in place; SuperSpeed peripheral enumeration untested |
 | USB OTG / host mode | USB-C data-role switching | ✅ Working | Since v0.1.1 UCSI negotiates the role automatically; wired mouse validated, USB drives and docks pending |
-| USB-C external display | DisplayPort Alt Mode / FSA4480 | 🟡 Development candidate passed | External picture, internal-display recovery after unplugging, and USB recovery when reconnected to the computer; other docks, DP audio and high refresh rates remain unverified |
+| USB-C external display | DisplayPort Alt Mode / FSA4480 | 🟡 Verified | External picture, internal-display recovery after unplugging, and USB recovery when reconnected to the computer; other docks, DP audio and high refresh rates remain unverified |
 
 ### Audio, Video and Sensors
 
@@ -97,7 +97,7 @@ The new DP and fingerprint results apply to the development candidate persistent
 
 | Feature | Component / Implementation | Status | Scope and Limitations |
 |---|---|---|---|
-| Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume; native lock-screen authentication verified in the development candidate |
+| Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume; native lock-screen authentication verified |
 | Battery / basic charging | qcom_battmgr / UPower | ✅ Working | Capacity reporting, charging state and basic wall charging |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; heavy workloads may still discharge the battery |
 | Xiaomi proprietary fast charging | Vendor charging protocol | 🟡 Partial | Charger authentication integrated; battery authentication verified and PD adapters reach 9 V / 2 A. MiPPS and standard PPS fast charging await adapter validation |
