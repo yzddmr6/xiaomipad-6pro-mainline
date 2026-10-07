@@ -18,6 +18,16 @@
   "package": "liuqin_images_OS2.0.6.0.VMYCNXM_20250318.0000.00_15.0_cn",
   "anti_version": 1,
   "images": {
+    "BTFM.bin": {
+      "partition": "bluetooth_a",
+      "bytes": 2240512,
+      "sha256": "0e274bdecd3c83c2b93e3f7c4ccbc2d8cfb77ab707648588810de1658472fa15"
+    },
+    "NON-HLOS.bin": {
+      "partition": "modem_a",
+      "bytes": 114151424,
+      "sha256": "4b28f839d45f5fabec8c874bd076957dc672e3810726f76e78070143bad6d563"
+    },
     "boot.img": {
       "partition": "boot_a",
       "bytes": 201326592,
@@ -32,6 +42,11 @@
       "partition": "dtbo_a",
       "bytes": 25165824,
       "sha256": "5e0377c7781e57f65c474f20edf3d7fb61f03f6030ca170e4edc29467a7993dd"
+    },
+    "dspso.bin": {
+      "partition": "dsp_a",
+      "bytes": 67108864,
+      "sha256": "e8854f99423bb6c638c6f605de0359de2f6261325b4b2126dd0323165f3e445b"
     },
     "vbmeta.img": {
       "partition": "vbmeta_a",

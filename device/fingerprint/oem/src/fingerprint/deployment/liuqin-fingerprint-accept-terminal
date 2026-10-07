@@ -1,0 +1,36 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Start PAM's input timer only when the local user is ready.
+[ -t 0 ] || { printf '请从桌面的指纹录入窗口启动。\n'; exit 2; }
+fp_tty_mode=$(stty -g) || exit 2
+fp_restore_tty() { stty "$fp_tty_mode" 2>/dev/null || :; }
+trap 'fp_restore_tty' EXIT
+trap 'exit 130' INT
+trap 'exit 143' HUP TERM
+fp_wait_enter() {
+    stty -echo || return 1
+    while IFS= read -r fp_discarded_input; do
+        if [ -z "$fp_discarded_input" ]; then
+            unset fp_discarded_input
+            return 0
+        fi
+        unset fp_discarded_input
+        printf '\n此处只需按回车；刚才的输入已丢弃。\n'
+    done
+    unset fp_discarded_input
+    return 1
+}
+stty -echo || exit 2
+printf '指纹录入\n\n完成一次设置，后续在 Ubuntu 登录和锁屏界面使用指纹。\n'
+printf '请先准备好平板。按回车开始，随后在密码提示出现时输入本机登录密码。\n'
+printf '密码仅供本机认证，不显示、不写入日志。现在不要输入密码。\n'
+printf '按回车开始；Ctrl+C 取消。\n'
+fp_wait_enter || exit 1
+fp_restore_tty
+printf '\n'
+pkexec /usr/local/lib/liuqin-fpc-oem/acceptance.py
+fp_accept_status=$?
+stty -echo || exit "$fp_accept_status"
+printf '\n指纹录入已结束（退出码 %s）。请查看上方结果，按回车关闭窗口。\n' "$fp_accept_status"
+fp_wait_enter || :
+exit "$fp_accept_status"

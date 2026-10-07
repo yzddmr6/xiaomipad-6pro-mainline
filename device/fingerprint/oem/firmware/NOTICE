@@ -1,0 +1,17 @@
+FPC1264 trusted application: local-device provisioning only
+
+The ten hashes in SHA256.json identify fpcliu.mdt and fpcliu.b00 through
+fpcliu.b08 from Xiaomi Pad 6 Pro (liuqin) HyperOS OS2.0.6.0.VMYCNXM,
+Android 15, images/NON-HLOS.bin, FAT directory /image.
+
+These OEM binaries are not included in the public liuqin-fingerprint package;
+the project has not established permission to redistribute them. On the first
+normal boot, provision_firmware.py mounts this tablet's modem_a read-only and
+copies only these ten files, verifying every hash before use. Subsequent boots
+reuse the verified local cache. A missing/different stock image disables the
+fingerprint service without modifying modem_a or preventing password login.
+
+The files are generic OEM trusted applications, not fingerprints, enrollment
+credentials, device calibration or Android user data. This package creates no
+biometric identity during build/install/firmware provisioning. A root-private
+random credential is created only on a Polkit-authorized native enrollment.

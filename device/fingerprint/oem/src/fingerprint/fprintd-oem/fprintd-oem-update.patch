@@ -1,0 +1,63 @@
+--- a/src/file_storage.c
++++ b/src/file_storage.c
+@@ -366,3 +366,5 @@
+   g_clear_pointer (&storage_path, g_free);
+   return 0;
+ }
++
++#include "oem-update.inc"
+--- a/src/file_storage.h
++++ b/src/file_storage.h
+@@ -38,3 +38,5 @@
+ GSList *file_storage_discover_prints (FpDevice   *dev,
+                                       const char *username);
+ GSList *file_storage_discover_users (void);
++
++gboolean file_storage_print_data_update (FpPrint *, FpPrint *, GCancellable *, GError **);
+--- a/src/device.c
++++ b/src/device.c
+@@ -32,6 +32,7 @@
+ #include "fprintd-dbus.h"
+ #include "fprintd.h"
+ #include "storage.h"
++#include "file_storage.h"
+ 
+ #define VERIFY_STOP_DEVICE_WAIT 1 /* Seconds to wait for the device to complete */
+ 
+@@ -1545,6 +1546,8 @@
+   FprintDevice *rdev = user_data;
+   FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
+   gboolean matched;
++  g_autoptr(GError) storage_error = NULL;
++  FpPrint *original = NULL;
+   gboolean cancelled;
+ 
+   g_assert_true (error == NULL || error->domain == FP_DEVICE_RETRY);
+@@ -1552,7 +1555,26 @@
+   cancelled = g_cancellable_is_cancelled (priv->current_cancellable);
+   matched = match != NULL && cancelled == FALSE;
+ 
+-  report_verify_status (rdev, matched, error);
++  if (match && g_strcmp0 (fp_device_get_driver (device), "fpc1264_oem") == 0)
++    original = g_object_get_data (G_OBJECT (match), "liuqin-fpc-oem-original");
++  if (original)
++    {
++      if (matched && !file_storage_print_data_update (original, match, priv->current_cancellable, &storage_error))
++        {
++          g_warning ("OEM verify storage_error phase=adaptive-template-update domain=%s code=%d",
++                     storage_error ? g_quark_to_string (storage_error->domain) : "none",
++                     storage_error ? storage_error->code : 0);
++          matched = FALSE;
++        }
++      if (!matched)
++        {
++          g_autoptr(GVariant) data = NULL;
++          g_object_get (original, "fpi-data", &data, NULL);
++          g_object_set (match, "fpi-data", data, NULL);
++        }
++      g_object_set_data (G_OBJECT (match), "liuqin-fpc-oem-original", NULL);
++    }
++  report_verify_status (rdev, matched, storage_error ? storage_error : error);
+ }
+ 
+ static void

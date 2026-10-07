@@ -50,6 +50,7 @@ kernel_modules_dir=${KERNEL_MODULES_DIR:-}
 kernel_image=${KERNEL_IMAGE:-}
 kernel_dtb=${KERNEL_DTB:-}
 kernel_initramfs=${KERNEL_INITRAMFS:-}
+fingerprint_bundle=${FINGERPRINT_BUNDLE:-}
 
 die() { printf 'build-liuqin-debs: %s\n' "$*" >&2; exit 1; }
 
@@ -395,12 +396,21 @@ build_kernel() {
 		'Xiaomi Pad 6 Pro (liuqin) kernel modules and boot payload'
 }
 
+build_fingerprint() {
+	[ -n "$fingerprint_bundle" ] && [ -f "$fingerprint_bundle" ] ||
+		die 'liuqin-fingerprint requires a verified FINGERPRINT_BUNDLE input'
+	python3 "$project_root/tools/build-liuqin-fingerprint-deb.py" \
+		--bundle "$fingerprint_bundle" --out "$out_dir" --version "$version"
+}
+
 build_meta() {
 	pkg=liuqin-device
 	root=$work/$pkg/root
 	mkdir -p "$root"
+	depends="liuqin-firmware (= $version), liuqin-device-support (= $version), liuqin-sensors (= $version), liuqin-kernel (= $version)"
+	[ -z "$fingerprint_bundle" ] || depends="$depends, liuqin-fingerprint (= $version)"
 	pack "$pkg" arm64 \
-		"liuqin-firmware (= $version), liuqin-device-support (= $version), liuqin-sensors (= $version), liuqin-kernel (= $version)" \
+		"$depends" \
 		'Xiaomi Pad 6 Pro (liuqin) device support metapackage'
 }
 
@@ -409,6 +419,7 @@ firmware) build_firmware ;;
 device-support) build_device_support ;;
 sensors) build_sensors ;;
 kernel) build_kernel ;;
+fingerprint) build_fingerprint ;;
 meta) build_meta ;;
 all)
 	build_firmware
@@ -417,7 +428,8 @@ all)
 	if [ -n "$kernel_modules_dir" ]; then build_kernel; else
 		printf 'build-liuqin-debs: skipping liuqin-kernel (no KERNEL_MODULES_DIR)\n' >&2
 	fi
+	[ -z "$fingerprint_bundle" ] || build_fingerprint
 	build_meta
 	;;
-*) die 'usage: build-liuqin-debs.sh all|firmware|device-support|sensors|kernel|meta' ;;
+*) die 'usage: build-liuqin-debs.sh all|firmware|device-support|sensors|kernel|fingerprint|meta' ;;
 esac

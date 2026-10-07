@@ -71,3 +71,17 @@ firmware set before publication.
 Device-specific calibration, WLAN and Bluetooth addresses and factory sensor
 registry data are read from the user's tablet. They are not public source or
 shared firmware assets and must not be distributed.
+
+Fingerprint integration
+-----------------------
+
+Optional device/fingerprint/oem source retains file-level BSD-2-Clause,
+LGPL-2.1-or-later, GPL-2.0-or-later and Apache-2.0 notices. QSEE supplicant/QCBOR
+retain upstream BSD licenses. QSEE supplicant is by Dawid Wróbel
+(https://github.com/wrobelda/qsee-supplicant); QCBOR is by Laurence Lundblade
+(https://github.com/laurencelundblade/QCBOR). Exact dependencies are in
+device/fingerprint/oem/SOURCE_LOCK.json.
+The fprintd original source remains external and hash-pinned; distribution of
+binaries must include corresponding source/adaptation as required by its license.
+OEM TA firmware, credentials, HATs, templates, raw images and private calibration
+are not included in this source repository.

@@ -118,11 +118,15 @@ dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	/tmp/liuqin-debs/liuqin-device-support_*_arm64.deb \
 	/tmp/liuqin-debs/liuqin-sensors_*_arm64.deb \
 	/tmp/liuqin-debs/liuqin-kernel_*_arm64.deb \
+	$(find /tmp/liuqin-debs -maxdepth 1 -name 'liuqin-fingerprint_*_arm64.deb' -print) \
 	/tmp/liuqin-debs/liuqin-device_*_arm64.deb
 dpkg --audit
 for pkg in liuqin-firmware liuqin-device-support liuqin-sensors liuqin-kernel liuqin-device; do
 	dpkg-query -W -f='${Status}\n' "$pkg" | grep -qx 'install ok installed'
 done
+if ls /tmp/liuqin-debs/liuqin-fingerprint_*_arm64.deb >/dev/null 2>&1; then
+	dpkg-query -W -f='${Status}\n' liuqin-fingerprint | grep -qx 'install ok installed'
+fi
 EOF
 	chmod 0755 "$root/root/native-assemble.sh"
 	mkdir -p "$apt_cache/lists" "$apt_cache/archives" \
@@ -218,6 +222,11 @@ END {
 	# --- per-device and first-boot boundaries ----------------------------------
 	[ ! -e "$root/var/lib/liuqin-private" ] ||
 		die 'per-device private data must not be in the generic tree'
+	for private in var/lib/fprint var/lib/liuqin-fingerprint; do
+		if [ -d "$root/$private" ] && find "$root/$private" -type f | grep -q .; then
+			die "fingerprint private state must not be in the generic tree: $private"
+		fi
+	done
 	if find "$root/usr/lib/firmware/cirrus" -name '*-calr.bin' | grep -q .; then
 		die 'per-device cirrus calibration must not be in the generic tree'
 	fi

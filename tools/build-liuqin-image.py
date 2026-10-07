@@ -10,6 +10,7 @@ import os
 import shutil
 from pathlib import Path
 import subprocess
+import zipfile
 
 
 # Files that decide what the installer writes to the tablet's storage: the
@@ -54,6 +55,7 @@ INPUTS = {
     'WLAN_HSP2_TUPLE', 'STOCK_OVERLAY_DIR', 'STOCK_BASE_DIR',
     'SENSOR_STACK_TAR', 'SENSOR_STACK_SHA256', 'POWER_SETTINGS_BINARY',
     'POWER_SETTINGS_MANIFEST', 'BUSYBOX', 'MKBOOTIMG_DIR',
+    'FINGERPRINT_BUNDLE',
 }
 
 
@@ -63,6 +65,8 @@ def main():
     parser.add_argument('--inputs', type=Path, required=True,
                         help='Local JSON object of prepared-input environment variables')
     parser.add_argument('--kernel-out', type=Path, required=True)
+    parser.add_argument('--kernel-source', type=Path,
+                        default=project.parent / 'linux-sm8450-liuqin')
     parser.add_argument('--out', type=Path, default=project / 'out/image')
     parser.add_argument('--stage', choices=['all', 'modules', 'debs', 'copy', 'install',
                                           'assemble', 'manifest', 'boot', 'runtime', 'installer',
@@ -82,6 +86,7 @@ def main():
         if not key.endswith('_SHA256') and not Path(value).exists():
             parser.error('Prepared input missing: ' + key)
     out, kernel = args.out.resolve(), args.kernel_out.resolve()
+    kernel_source = args.kernel_source.resolve()
     if project / 'out' not in out.parents:
         parser.error('--out must be inside the project out directory')
     lock = json.loads((project / 'kernel/source.json').read_text())
@@ -91,7 +96,10 @@ def main():
         parser.error('Kernel build must match the product lock, not a development override')
     if info['config_sha256'] != lock['config_sha256']:
         parser.error('Kernel configuration does not match the product lock')
-    if info.get('build_kind') == 'development':
+    if hashlib.sha256((kernel / '.config').read_bytes()).hexdigest() != lock['config_sha256']:
+        parser.error('Kernel configuration bytes differ from the product lock')
+    imported = info.get('build_kind') == 'imported-clean-repro'
+    if info.get('build_kind') == 'development' or imported:
         # A development build is a `build-liuqin-kernel.py --revision` build.
         # It was made from the same clean source, fragments and builder as a
         # product build; only its label records the lock of that day.  Once
@@ -102,18 +110,17 @@ def main():
                      for path in lock['config_fragments']}
         if info.get('fragments') != fragments:
             parser.error('Development kernel build used other config fragments than the product lock')
-        print('Kernel: development build of the locked commit ' + lock['commit'][:12] +
-              ' (built while the lock named ' + str(info.get('product_kernel_commit'))[:12] +
-              '); commit, configuration and fragments match the lock', flush=True)
+        print('Kernel: ' + info['build_kind'] + ' of locked commit ' + lock['commit'][:12] +
+              '; commit, configuration and fragments match the lock', flush=True)
     elif info.get('build_kind') != 'product-input':
         parser.error('Kernel build must match the product lock, not a development override')
     env = os.environ.copy()
     # Privileged assembly reads exactly these user-owned repositories.
     env.update(GIT_CONFIG_COUNT='2', GIT_CONFIG_KEY_0='safe.directory',
                GIT_CONFIG_VALUE_0=str(project), GIT_CONFIG_KEY_1='safe.directory',
-               GIT_CONFIG_VALUE_1=str(project.parent / 'linux-sm8450-liuqin'))
-    env.update(supplied, KERNEL_SOURCE=str(project.parent / 'linux-sm8450-liuqin'),
-               KERNEL_DIR=str(project.parent / 'linux-sm8450-liuqin'), KERNEL_COMMIT=lock['commit'],
+               GIT_CONFIG_VALUE_1=str(kernel_source))
+    env.update(supplied, KERNEL_SOURCE=str(kernel_source),
+               KERNEL_DIR=str(kernel_source), KERNEL_COMMIT=lock['commit'],
                KERNEL_OUT=str(kernel), KERNEL_IMAGE=str(kernel / 'arch/arm64/boot/Image'),
                KERNEL_DTB=str(kernel / 'arch/arm64/boot/dts' / lock['dtb']),
                KERNEL_MODULES_DIR=str(out / 'modules'), DEBS_DIR=str(out / 'debs'),
@@ -141,6 +148,26 @@ def main():
     except BlockingIOError:
         parser.error('another assembly owns this output')
     for stage in selected:
+        if stage == 'modules' and imported:
+            # Reuse the product module tree already normalized and compared by
+            # the clean A/B build. Never run Kbuild inside a frozen proof OUT.
+            prepared = info.get('prepared_modules', {})
+            names = {'modules.tar', 'modules.manifest', 'kernel.release', 'kernel.commit'}
+            if (prepared.get('directory') != 'prepared-modules' or
+                    set(prepared.get('files', {})) != names):
+                parser.error('Imported kernel lacks its exact prepared module set')
+            source = kernel / prepared['directory']
+            if ((source / 'kernel.commit').read_text().strip() != lock['commit'] or
+                    (source / 'kernel.release').read_text() !=
+                    (kernel / 'include/config/kernel.release').read_text()):
+                parser.error('Imported modules do not belong to the locked kernel')
+            for name, expected in prepared['files'].items():
+                with (source / name).open('rb') as stream:
+                    if hashlib.file_digest(stream, 'sha256').hexdigest() != expected:
+                        parser.error('Imported module artifact mismatch: ' + name)
+            shutil.copytree(source, out / 'modules')
+            print('Stage: modules (verified clean/repro product artifacts)', flush=True)
+            continue
         if stage == 'release-assets':
             changed = installation_path_changes(project, env)
             if changed and not args.device_tested:
@@ -164,12 +191,34 @@ def main():
                             str(destination / 'rootfs.tar.gz.part-')], check=True)
             (destination / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')
             hashes = dict(metadata['files'])
+            for part in sorted(destination.glob('rootfs.tar.gz.part-*')):
+                with part.open('rb') as stream:
+                    hashes[part.name] = hashlib.file_digest(stream, 'sha256').hexdigest()
             hashes['bundle.json'] = hashlib.sha256((destination / 'bundle.json').read_bytes()).hexdigest()
             (destination / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in hashes.items()))
             continue
         if stage == 'bundle':
             destination = out / 'bundle'
             destination.mkdir()
+            # Ship the project-owned Android return module and its host tools
+            # with the same image; upstream KernelSU binaries remain fetched
+            # from their pinned release rather than copied from a test tablet.
+            ksu_out = out / 'ksu-module'
+            subprocess.run(['sh', str(project / 'tools/build-ksu-module.sh')],
+                           env=dict(env, OUT_DIR=str(ksu_out)), check=True)
+            ksu_modules = list(ksu_out.glob('liuqin_boot_ubuntu-*.zip'))
+            if len(ksu_modules) != 1:
+                parser.error('Expected exactly one KernelSU return module')
+            dualboot_tools = out / 'dualboot-tools.zip'
+            with zipfile.ZipFile(dualboot_tools, 'w', zipfile.ZIP_DEFLATED) as archive:
+                for name in ('tools/fetch-kernelsu-assets.sh',
+                             'tools/patch-android-boot-ksu.py',
+                             'tools/lib/kernelsu-assets.json',
+                             'device/android/ksu-boot-ubuntu/README.md', 'LICENSE', 'NOTICE'):
+                    entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                    entry.compress_type = zipfile.ZIP_DEFLATED
+                    entry.external_attr = 0o644 << 16
+                    archive.writestr(entry, (project / name).read_bytes())
             files = {'boot.img': out / 'boot/boot-liuqin-native.img',
                      'installer.img': out / 'installer/boot-liuqin-native.img',
                      'rootfs.tar.gz': out / 'root/rootfs.tar.gz',
@@ -178,7 +227,23 @@ def main():
                      'liuqin-rom-images.json': project / 'tools/lib/liuqin-rom-images.json',
                      'INSTALL-TESTING.md': project / 'docs/INSTALL-TESTING.md',
                      'INSTALL-TESTING.zh-CN.md': project / 'docs/INSTALL-TESTING.zh-CN.md',
-                     'NOTICE': project / 'NOTICE', 'LICENSE': project / 'LICENSE'}
+                     'NOTICE': project / 'NOTICE', 'LICENSE': project / 'LICENSE',
+                     ksu_modules[0].name: ksu_modules[0], 'dualboot-tools.zip': dualboot_tools,
+                     'FINGERPRINT.md': project / 'docs/FINGERPRINT.md',
+                     'FINGERPRINT.zh-CN.md': project / 'docs/FINGERPRINT.zh-CN.md',
+                     'fingerprint-build-inputs.tar.gz': Path(supplied['FINGERPRINT_BUNDLE'])}
+            if imported:
+                proof = out / 'kernel-build-proof.zip'
+                proof_files = [kernel / 'build-info.json', kernel / 'SHA256SUMS',
+                               kernel / '.config', *sorted((kernel / 'provenance').iterdir())]
+                with zipfile.ZipFile(proof, 'w', zipfile.ZIP_DEFLATED) as archive:
+                    for source in proof_files:
+                        entry = zipfile.ZipInfo(source.relative_to(kernel).as_posix(),
+                                                date_time=(1980, 1, 1, 0, 0, 0))
+                        entry.compress_type = zipfile.ZIP_DEFLATED
+                        entry.external_attr = 0o644 << 16
+                        archive.writestr(entry, source.read_bytes())
+                files['kernel-build-proof.zip'] = proof
             hashes = {}
             for name, source in files.items():
                 if name in ('boot.img', 'installer.img', 'rootfs.tar.gz'):
@@ -192,6 +257,9 @@ def main():
                         'project_commit': subprocess.check_output(['git', '-C', str(project), 'rev-parse', 'HEAD'], env=env, text=True).strip(),
                         'project_dirty': bool(subprocess.check_output(['git', '-C', str(project), 'status', '--porcelain'], env=env)),
                         'kernel_release': (kernel / 'include/config/kernel.release').read_text().strip(),
+                        'features': {'displayport': True,
+                                     'native_fingerprint': bool(supplied.get('FINGERPRINT_BUNDLE')),
+                                     'kernelsu_return_module': ksu_modules[0].name},
                         'files': hashes}
             (destination / 'bundle.json').write_text(json.dumps(metadata, indent=2) + '\n')
             hashes['bundle.json'] = hashlib.sha256((destination / 'bundle.json').read_bytes()).hexdigest()
