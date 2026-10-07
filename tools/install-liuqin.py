@@ -193,6 +193,8 @@ def parse_arguments(argv=None):
     parser.add_argument('--host-address', help='Host IPv4 address on the tablet USB network')
     parser.add_argument('--device-address', default='192.168.7.2')
     parser.add_argument('--backup', type=Path)
+    parser.add_argument('--no-backup', action='store_true',
+                        help='Explicitly skip partition backups for an existing --keep-home reinstall')
     parser.add_argument('--erase-userdata', action='store_true')
     parser.add_argument('--layout', choices=list(layout.MODES),
                         help='linux-only: Ubuntu is the only system. '
@@ -237,6 +239,8 @@ def reference_plan(parser, args):
 def validate_arguments(parser, args, preview=False):
     """Check the argument combinations.  ``preview`` covers the offline --check
     path, where no device and no stock ROM are involved."""
+    if args.no_backup and (args.backup or not args.keep_home or args.restore_partition_table):
+        parser.error('--no-backup requires --keep-home and cannot be combined with --backup or restore')
     if args.keep_home and (args.android_size or args.root_size):
         parser.error('--keep-home keeps the existing sizes; do not also request new ones'
                      ' —— 现有分区尺寸不可调整，请勿同时指定尺寸参数')
@@ -376,14 +380,15 @@ def main(argv=None):
         parser.error('bundle has not passed device testing; use --allow-unverified only for attended tests'
                      ' —— 该包未通过真机验证，请勿用于正式安装')
     restore = args.restore_partition_table
-    if restore is None and not all((args.serial, args.backup, args.erase_userdata)):
-        parser.error('--serial, --backup, --erase-userdata and --layout are required')
+    if restore is None and not all((args.serial, args.backup or args.no_backup, args.erase_userdata)):
+        parser.error('--serial, --backup (or --no-backup), --erase-userdata and --layout are required')
     if restore is None:
-        if args.backup.exists():
-            parser.error('--backup must be a new directory')
-        args.backup = args.backup.resolve()
-        if args.backup == bundle or bundle in args.backup.parents:
-            parser.error('private backups must be outside the served bundle directory')
+        if not args.no_backup:
+            if args.backup.exists():
+                parser.error('--backup must be a new directory')
+            args.backup = args.backup.resolve()
+            if args.backup == bundle or bundle in args.backup.parents:
+                parser.error('private backups must be outside the served bundle directory')
         planned = None if args.keep_home else reference_plan(parser, args)
         rom_table, rom_images = ({}, {})
         if args.layout == 'dual':
@@ -529,12 +534,16 @@ def main(argv=None):
             extra['/' + ANDROID_BOOT_URL] = rom_images[ANDROID_BOOT_IMAGE]['path']
         server = http.server.ThreadingHTTPServer((args.host_address, 0), bundle_handler(bundle, extra))
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        args.backup.mkdir(mode=0o700, parents=True)
         backups = {}
-        for name in ('boot_a', 'boot_b', 'persist'):
-            backups[name + '.img'] = backup_partition(remote, args.backup, name)
-        (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
-        saved = backup_partition_table(device_layout, args.backup, args.serial)
+        saved = None
+        if args.no_backup:
+            print('Partition backups skipped by explicit --no-backup request.', flush=True)
+        else:
+            args.backup.mkdir(mode=0o700, parents=True)
+            for name in ('boot_a', 'boot_b', 'persist'):
+                backups[name + '.img'] = backup_partition(remote, args.backup, name)
+            (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
+            saved = backup_partition_table(device_layout, args.backup, args.serial)
         disk = layout.parse_print(device_layout('report', ANCHOR))
         state = layout.classify(disk)
         print('Partition table state: ' + state)
@@ -569,8 +578,12 @@ def main(argv=None):
             for index, (image_name, entry) in enumerate(flashes):
                 name = entry['partition']
                 if name in ANDROID_FIRMWARE_PARTITIONS:
-                    backups[name + '.img'] = backup_partition(remote, args.backup, name)
-                    firmware_bytes = (args.backup / (name + '.img')).stat().st_size
+                    if args.no_backup:
+                        firmware_bytes = int(remote('/bin/busybox blockdev --getsize64 ' +
+                                                    shlex.quote('/dev/disk/by-partlabel/' + name)).decode().strip())
+                    else:
+                        backups[name + '.img'] = backup_partition(remote, args.backup, name)
+                        firmware_bytes = (args.backup / (name + '.img')).stat().st_size
                     firmware_scratch = Path(scratch.name) / name
                     firmware_scratch.mkdir()
                     image, digest = pad_boot_image(entry['path'], entry['sha256'],
@@ -578,7 +591,8 @@ def main(argv=None):
                     flashes[index] = (image_name, dict(entry, path=image,
                                                       flash_bytes=firmware_bytes,
                                                       flash_sha256=digest))
-            (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
+            if not args.no_backup:
+                (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
         base = f'http://{args.host_address}:{server.server_port}'
         install = install_root_command(boot_id, base, bundle, manifest, args, rom_images)
         print('Installing Ubuntu into ' + layout.ROOT_NAME + '.', flush=True)

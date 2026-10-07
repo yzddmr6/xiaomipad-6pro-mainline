@@ -721,3 +721,17 @@ assert max(map(len, framed)) <= installer.RAM_SHELL_LINE_BYTES, max(map(len, fra
 print('PASS: large partition blobs are chunked into RAM shell lines of at most '
       + str(max(map(len, framed))) + ' bytes')
 
+
+# Backup opt-out is explicit and cannot admit repartitioning or restore.
+for extra, allowed in ((['--no-backup', '--keep-home'], True),
+                       (['--no-backup'], False),
+                       (['--no-backup', '--keep-home', '--backup', '/tmp/unused'], False),
+                       (['--no-backup', '--keep-home', '--restore-partition-table', '/tmp/unused'], False)):
+    parser, options = installer.parse_arguments(['--bundle', '/tmp/unused', *extra])
+    try:
+        installer.validate_arguments(parser, options, preview=True)
+    except SystemExit:
+        assert not allowed, extra
+    else:
+        assert allowed, extra
+print('PASS: explicit no-backup mode is limited to an existing keep-home reinstall')
