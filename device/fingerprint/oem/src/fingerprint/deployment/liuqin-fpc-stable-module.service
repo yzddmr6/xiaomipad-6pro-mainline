@@ -1,5 +1,5 @@
 [Unit]
-Description=Liuqin stable FPC1264 module after desktop and SSH
+Description=Liuqin FPC1264 module after desktop services
 After=gdm.service ssh.service NetworkManager.service iio-sensor-proxy.service
 Wants=gdm.service ssh.service NetworkManager.service iio-sensor-proxy.service
 ConditionPathExists=/dev/tee0

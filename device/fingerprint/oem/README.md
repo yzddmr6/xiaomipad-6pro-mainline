@@ -46,6 +46,13 @@ Copy candidate-config.example.json outside source and set the actual username,
 UID, exact support-kernel release, source identity and public boot hashes.
 An explicitly prepared development candidate may set `control_service` to
 the verified diagnostic systemd service instead of the default `ssh` service.
+The default `deployment_mode` is `development` and retains the diagnostic,
+network, GDM and rotation readiness checks. A persistently installed matching
+kernel may use `deployment_mode: "installed"`: it waits for GDM and rotation,
+but does not depend on networking or a development control service. GDM service
+readiness does not require a user to log in. Both modes retain the exact kernel
+release, module hash, TEE, device-tree and supply checks. This mode alone does
+not install a kernel or establish cold-boot fingerprint acceptance.
 The example describes the accepted stable #2 temporary support boot; it is not
 a product image. Use the module built for that kernel and matching external
 fpcliu.mdt / segment files. No credential or biometric file belongs in firmware.

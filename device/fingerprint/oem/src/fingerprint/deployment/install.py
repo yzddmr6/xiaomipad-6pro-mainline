@@ -64,8 +64,8 @@ def install():
     units = Path("/etc/systemd/system")
     (units / "liuqin-fpc-acceptance-fprintd.service").write_text(candidate_unit)
     module_unit = (destination / "deployment/liuqin-fpc-stable-module.service").read_text()
-    control_service = info.get("control_service", "ssh").removesuffix(".service") + ".service"
-    (units / "liuqin-fpc-stable-module.service").write_text(module_unit.replace("ssh.service", control_service))
+    from stable_module import render_module_unit
+    (units / "liuqin-fpc-stable-module.service").write_text(render_module_unit(module_unit, info))
     # udev must not load the module before the guarded late-load service.
     modprobe = Path("/etc/modprobe.d")
     modprobe.mkdir(exist_ok=True)
