@@ -30,7 +30,12 @@ def prepare(vendor: Path, destination: Path, patch_output: Path = None):
   if (original)
     {
       if (matched && !file_storage_print_data_update (original, match, priv->current_cancellable, &storage_error))
-        matched = FALSE;
+        {
+          g_warning ("OEM verify storage_error phase=adaptive-template-update domain=%s code=%d",
+                     storage_error ? g_quark_to_string (storage_error->domain) : "none",
+                     storage_error ? storage_error->code : 0);
+          matched = FALSE;
+        }
       if (!matched)
         {
           g_autoptr(GVariant) data = NULL;

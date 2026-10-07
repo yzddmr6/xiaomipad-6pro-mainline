@@ -33,7 +33,7 @@
    gboolean cancelled;
  
    g_assert_true (error == NULL || error->domain == FP_DEVICE_RETRY);
-@@ -1552,7 +1555,21 @@
+@@ -1552,7 +1555,26 @@
    cancelled = g_cancellable_is_cancelled (priv->current_cancellable);
    matched = match != NULL && cancelled == FALSE;
  
@@ -43,7 +43,12 @@
 +  if (original)
 +    {
 +      if (matched && !file_storage_print_data_update (original, match, priv->current_cancellable, &storage_error))
-+        matched = FALSE;
++        {
++          g_warning ("OEM verify storage_error phase=adaptive-template-update domain=%s code=%d",
++                     storage_error ? g_quark_to_string (storage_error->domain) : "none",
++                     storage_error ? storage_error->code : 0);
++          matched = FALSE;
++        }
 +      if (!matched)
 +        {
 +          g_autoptr(GVariant) data = NULL;
