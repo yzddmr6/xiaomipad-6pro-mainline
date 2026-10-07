@@ -1,0 +1,8 @@
+{
+  "linux_username": "YOUR_LINUX_USER",
+  "linux_uid": 1000,
+  "kernel_release": "6.17.0-rc1-ga974a62a45c5",
+  "base_kernel": "a974a62a45c5d3ebf1d121eb909db963f7e3c4aa",
+  "boot_image_sha256": "b05e72914ad40cb578f2f15ae75202f97c55e15e5161530d2d77a75260380b70",
+  "recovery_image_sha256": "e69d7e6e5687e972c25be73ac538b10615c4a37b2b1ac3f90dd5a67d1e9911be"
+}

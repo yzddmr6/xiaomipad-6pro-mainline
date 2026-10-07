@@ -1,0 +1,24 @@
+{
+  "libfprint": {
+    "installed_version_without_epoch": "1.95.1+tod1-0ubuntu2",
+    "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.95.1+tod1.orig.tar.bz2",
+    "dsc_url": "https://archive.ubuntu.com/ubuntu/pool/main/libf/libfprint/libfprint_1.95.1+tod1-0ubuntu2.dsc",
+    "orig_sha256": "b04c55ce1b1f0bcf97ca6e9e3dfbcad931ac2e8f87c29548c93d1aa69d9f6c60"
+  },
+  "fprintd": {
+    "installed_version_without_epoch": "1.94.5-4",
+    "source_url": "https://archive.ubuntu.com/ubuntu/pool/main/f/fprintd/fprintd_1.94.5.orig.tar.bz2",
+    "dsc_url": "https://archive.ubuntu.com/ubuntu/pool/main/f/fprintd/fprintd_1.94.5-4.dsc",
+    "orig_sha256": "597466f61fdd5bd1d8af4fe96d982eb07528d28e915200ad789279ed7d8dfb6d"
+  },
+  "QCBOR": {
+    "base_commit": "930708bb86481e88879eb1d87fd4d664f1d69503",
+    "version": "1.6.1",
+    "vendored_scope": "headers and source build dependency; upstream license and notices retained"
+  },
+  "qsee-supplicant": {
+    "base_commit": "36e06680cf7f690fccbdcd07abc2a64c4bb061d8",
+    "version": "0.1.1",
+    "modifications": "legacy QSEE transport, FS read layout, authenticated UFS RPMB listener"
+  }
+}
