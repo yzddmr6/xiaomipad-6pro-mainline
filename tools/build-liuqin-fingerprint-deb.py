@@ -181,7 +181,8 @@ def build(bundle, out, version):
         for path in (root, *root.rglob("*")):
             os.utime(path, (epoch, epoch), follow_symlinks=False)
         intermediate = work / target.name
-        subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(root), str(intermediate)], check=True)
+        subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(root), str(intermediate)],
+                       check=True, env=dict(os.environ, SOURCE_DATE_EPOCH=str(epoch)))
         # Publish only the complete frozen output, with no overwrite window.
         with target.open("xb") as output, intermediate.open("rb") as source:
             shutil.copyfileobj(source, output)
