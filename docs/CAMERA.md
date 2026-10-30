@@ -4,14 +4,17 @@ The Xiaomi Pad 6 Pro rear camera (Samsung S5KJN1, 50 MP) works as an
 experimental feature: preview, still photos and video recording run in the
 distribution Camera application (GNOME Snapshot). Image processing runs on the
 CPU through libcamera's software ISP; there is no calibrated tuning, no
-autofocus and no hardware encoding. The front camera is not enabled.
+autofocus and no hardware encoding. The front camera is not enabled in release
+images; an experimental bring-up that also covers simultaneous front/rear
+capture is documented in [Front camera bring-up and dual-camera
+capture](CAMERA-FRONT.md).
 
 | Function | Status |
 | --- | --- |
 | Rear preview and still photos | 🟡 works, image softer than the stock system |
 | Rear video recording and playback | 🟡 works, motion stutters |
 | Autofocus, calibrated tuning, other sensor modes | ❌ not implemented |
-| Front camera | ❌ not enabled |
+| Front camera | ❌ not in release images; experimental bring-up in [Front camera](CAMERA-FRONT.md) |
 | Hardware video encoding | ❌ not used |
 
 ## Validation status

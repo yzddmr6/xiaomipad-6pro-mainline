@@ -103,7 +103,7 @@ Verified features at a glance; see the table below for the scope of each:
 | Browser hardware decoding | Browser / V4L2 integration | 🧪 Unverified | Video playback alone does not prove hardware decoding |
 | Hardware encoding | Qualcomm video engine | 🧪 Unverified | Hardware encoding workflows not tested |
 | Rear camera | S5KJN1 / Qualcomm CAMSS / libcamera software ISP | 🟡 Partial | Preview, photos and video in the Camera app; software image processing, no autofocus, video stutters. See [Camera](docs/CAMERA.md) |
-| Front camera | Camera sensor / CAMSS | ❌ Unsupported | Not enabled or validated |
+| Front camera | Camera sensor / CAMSS | ❌ Not in release images | Experimental bring-up and dual-camera usage in [Front camera](docs/CAMERA-FRONT.md) |
 | Accelerometer / auto-rotation | SLPI / SSC / iio-sensor-proxy | ✅ Working | First boot, login screen, desktop rotation and magnetic-keyboard landscape use |
 | Gyroscope / magnetometer | SSC sensor path | 🧪 Unverified | Application-usable measurements not confirmed by accelerometer support |
 | Ambient light sensor | SSC light-sensor path | 🧪 Unverified | Real light measurements not fully validated |
