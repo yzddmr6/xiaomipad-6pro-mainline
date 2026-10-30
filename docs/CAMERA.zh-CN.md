@@ -53,6 +53,8 @@ Snapshot 的相机预览需要 DMA-BUF 导入，所以 `liuqin-camera` 只为 Sn
 gsettings set org.gnome.Snapshot enable-hardware-encoding false
 ```
 
+只认 V4L2 的应用（例如微信）需要回环设备，见[微信调用摄像头与通话中切换前后摄](WECHAT-CAMERA.zh-CN.md)。
+
 ## 验证
 
 关闭「相机」后执行：

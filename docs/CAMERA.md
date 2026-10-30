@@ -85,6 +85,9 @@ hardware encoding turned off; if recording fails, turn it off:
 gsettings set org.gnome.Snapshot enable-hardware-encoding false
 ```
 
+Applications that only speak V4L2, such as WeChat, need a loopback device; see
+[WeChat camera and switching cameras during a call](WECHAT-CAMERA.md).
+
 ## Verifying
 
 With Camera closed:
