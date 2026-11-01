@@ -23,9 +23,9 @@ def run(*args, **kwargs):
 
 
 def prepare(project, out, lock):
-    patch = project / lock['patch']
-    if sha(patch) != lock['patch_sha256']:
-        raise SystemExit('Settings patch differs from source.json')
+    for item in lock['patches']:
+        if sha(project / item['path']) != item['sha256']:
+            raise SystemExit('Settings patch differs from source.json: ' + item['path'])
     stamp = out / 'source-inputs.json'
     source = out / 'source'
     if stamp.exists():
@@ -49,9 +49,13 @@ def prepare(project, out, lock):
     run('tar', '-xf', str(downloads / orig), '--strip-components=1', '-C', str(source))
     run('tar', '-xf', str(downloads / debian), '-C', str(source))
     patches = source / 'debian/patches'
-    shutil.copyfile(patch, patches / 'liuqin-power-settings.patch')
     series = patches / 'series'
-    series.write_text(series.read_text().rstrip() + '\nliuqin-power-settings.patch\n')
+    names = []
+    for item in lock['patches']:
+        name = 'liuqin-' + Path(item['path']).name
+        shutil.copyfile(project / item['path'], patches / name)
+        names.append(name)
+    series.write_text(series.read_text().rstrip() + '\n' + '\n'.join(names) + '\n')
     run('dpkg-source', '--before-build', str(source))
     stamp.write_text(json.dumps(lock, indent=2) + '\n')
     return source

@@ -6,6 +6,14 @@
     "gnome-control-center_50.0.orig.tar.xz": "20e8d5b13b9f390581004cab34b74372c0ff4a16f9c11bffd93d8386fbcdeeb3",
     "gnome-control-center_50.0-0ubuntu6.debian.tar.xz": "b94b041ccc08cc3cc6a198405a0e745f27bca22ea1407fc42b95e20053b29021"
   },
-  "patch": "device/gnome-control-center/patches/0001-expose-liuqin-power-button-policy.patch",
-  "patch_sha256": "33f941331158904e5842f704166301d1fe25c47330bf669af466f2d8bfc99077"
+  "patches": [
+    {
+      "path": "device/gnome-control-center/patches/0001-expose-liuqin-power-button-policy.patch",
+      "sha256": "33f941331158904e5842f704166301d1fe25c47330bf669af466f2d8bfc99077"
+    },
+    {
+      "path": "device/gnome-control-center/patches/0002-show-author-on-about-page.patch",
+      "sha256": "5fa3f3e25f370654e49f30d060d8eba5fcae4609a6b86d7b64c74021a086203b"
+    }
+  ]
 }
