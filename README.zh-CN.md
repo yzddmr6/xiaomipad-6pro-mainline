@@ -2,6 +2,8 @@
 
 在 Xiaomi Pad 6 Pro 上运行 Ubuntu 26.04 桌面，采用 GNOME 桌面环境与基于上游 Linux 的设备适配内核。[English](README.md)
 
+官方发布只在本仓库 [Releases](https://github.com/yzddmr6/xiaomipad-6pro-mainline/releases)，免费提供。
+
 ## 最新版本与近期更新
 
 **[v0.6.0 正式版](https://github.com/yzddmr6/xiaomipad-6pro-mainline/releases/tag/v0.6.0)** 已发布。指纹、DP 外屏和双系统修复已整合进完整安装包，并在已知 256 GB 开发机完成安装、首次设置与功能确认。

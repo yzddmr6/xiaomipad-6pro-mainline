@@ -79,8 +79,8 @@ def main():
             parser.error('output has no input identity; use a new --out directory')
         stamp.write_text(json.dumps(identity, indent=2) + '\n')
         env = os.environ.copy()
-        env.update(ARCH='arm64', CROSS_COMPILE=cross, KBUILD_BUILD_USER='liuqin',
-                   KBUILD_BUILD_HOST='build', KBUILD_BUILD_VERSION='1',
+        env.update(ARCH='arm64', CROSS_COMPILE=cross, KBUILD_BUILD_USER='yzddmr6',
+                   KBUILD_BUILD_HOST='xiaomipad-6pro-mainline', KBUILD_BUILD_VERSION='1-yzddmr6',
                    KBUILD_BUILD_TIMESTAMP=output('git', '-C', str(source), 'show',
                                                 '-s', '--format=%cI', 'HEAD'))
         for key in ('KCONFIG_CONFIG', 'KCONFIG_ALLCONFIG', 'KBUILD_OUTPUT',
