@@ -1,0 +1,154 @@
+--- a/src/device.c
++++ b/src/device.c
+@@ -113,6 +113,9 @@
+ 
+   /* Required to restart the operation on a retry failure. */
+   FpPrint   *verify_data;
++  /* Prints still to try for the verify action in progress, in finger
++   * order.  Only used when the device cannot identify (see verify_start). */
++  GPtrArray *verify_gallery;
+   GPtrArray *identify_data;
+   int        enroll_data;
+ 
+@@ -256,6 +259,7 @@
+   if (priv->current_action != ACTION_NONE ||
+       priv->_session ||
+       priv->verify_data ||
++      priv->verify_gallery ||
+       priv->identify_data ||
+       priv->current_cancellable ||
+       priv->current_cancel_invocation)
+@@ -1290,6 +1294,39 @@
+ 
+   if (done)
+     session->verify_status_reported = TRUE;
++}
++
++/* Multiple stored templates without device-side identification: walk them one
++ * press at a time.  The current print was captured and did not match, but the
++ * client must not treat that as the final answer while another print is still
++ * queued, so report the non-terminal retry status (clients keep waiting and do
++ * not consume a retry of their own) and tell the user which finger is next. */
++static void
++report_verify_next_print (FprintDevice *rdev)
++{
++  FprintDevicePrivate *priv = fprint_device_get_instance_private (rdev);
++  FpPrint *next = g_ptr_array_index (priv->verify_gallery, 0);
++  FpFinger finger = fp_print_get_finger (next);
++
++  g_debug ("next stored print queued for this verification: %s",
++           fp_finger_to_name (finger));
++  g_signal_emit (rdev, signals[SIGNAL_VERIFY_STATUS], 0, "verify-retry-scan", FALSE);
++
++  if (FP_FINGER_IS_VALID (finger))
++    g_signal_emit (rdev, signals[SIGNAL_VERIFY_FINGER_SELECTED], 0,
++                   fp_finger_to_name (finger));
++}
++
++/* file_storage_discover_prints() walks the print directory in dirent order, so
++ * the gallery is not ordered by finger.  Sort it so the presses are requested
++ * in a stable, predictable order (left thumb 鈥?right little). */
++static gint
++compare_print_finger (gconstpointer a, gconstpointer b)
++{
++  FpPrint *pa = *(FpPrint * const *) a;
++  FpPrint *pb = *(FpPrint * const *) b;
++
++  return (gint) fp_print_get_finger (pa) - (gint) fp_print_get_finger (pb);
+ }
+ 
+ static void
+@@ -1516,6 +1553,9 @@
+       session->verify_status_reported = FALSE;
+     }
+ 
++  /* The queued prints only belong to the verify action that built
++   * them; never let them survive into the next one. */
++  g_clear_pointer (&priv->verify_gallery, g_ptr_array_unref);
+   g_clear_object (&priv->current_cancellable);
+ }
+ 
+@@ -1554,6 +1594,15 @@
+ 
+   cancelled = g_cancellable_is_cancelled (priv->current_cancellable);
+   matched = match != NULL && cancelled == FALSE;
++
++  if (!matched && !error && !cancelled && priv->verify_gallery &&
++      priv->verify_gallery->len > 0)
++    {
++      /* Not the final answer: the remaining prints are tried by
++       * verify_cb() with one more press each. */
++      report_verify_next_print (rdev);
++      return;
++    }
+ 
+   if (match && g_strcmp0 (fp_device_get_driver (device), "fpc1264_oem") == 0)
+     original = g_object_get_data (G_OBJECT (match), "liuqin-fpc-oem-original");
+@@ -1594,7 +1643,8 @@
+   g_debug ("verify_cb: result %s", name);
+ 
+   /* Automatically restart the operation for retry failures */
+-  if (error && error->domain == FP_DEVICE_RETRY)
++  if (error && error->domain == FP_DEVICE_RETRY &&
++      !g_cancellable_is_cancelled (priv->current_cancellable))
+     {
+       fp_device_verify (priv->dev,
+                         priv->verify_data,
+@@ -1602,6 +1652,27 @@
+                         match_cb, rdev, NULL,
+                         (GAsyncReadyCallback) verify_cb,
+                         rdev);
++    }
++  else if (!error && !match && priv->verify_gallery &&
++           priv->verify_gallery->len > 0 &&
++           !g_cancellable_is_cancelled (priv->current_cancellable))
++    {
++      /* The current print did not match.  No terminal status was sent
++       * for it (see match_cb), so continue with the next stored print
++       * while the client keeps waiting. */
++      FpPrint *next = g_object_ref (g_ptr_array_index (priv->verify_gallery, 0));
++
++      g_ptr_array_remove_index (priv->verify_gallery, 0);
++      g_clear_object (&priv->verify_data);
++      priv->verify_data = next;
++
++      fp_device_verify (priv->dev,
++                        priv->verify_data,
++                        priv->current_cancellable,
++                        match_cb, rdev, NULL,
++                        (GAsyncReadyCallback) verify_cb,
++                        rdev);
++      return;
+     }
+   else
+     {
+@@ -1743,12 +1814,27 @@
+     {
+       g_autoptr(FpPrint) print = NULL;
+ 
++      /* Only a completed action can have left prints queued. */
++      g_clear_pointer (&priv->verify_gallery, g_ptr_array_unref);
++
+       if (gallery)
+         {
+-          /* TODO: Use g_ptr_array_remove_index_fast with GLib >= 2.58 */
++          /* Stable ordering includes the first print, not only the tail. */
++          g_ptr_array_sort (gallery, compare_print_finger);
+           print = g_object_ref (g_ptr_array_index (gallery, 0));
+-          g_ptr_array_remove_index_fast (gallery, 0);
++          g_ptr_array_remove_index (gallery, 0);
+           finger = fp_print_get_finger (print);
++
++          /* The device cannot identify on its own and the user has
++           * more than one print stored: queue the rest for this very
++           * VerifyStart instead of silently verifying gallery[0]
++           * forever. */
++          if (gallery->len > 0)
++            {
++              priv->verify_gallery = g_ptr_array_ref (gallery);
++              g_debug ("%u further stored prints queued for verification",
++                       gallery->len);
++            }
+         }
+       else
+         {

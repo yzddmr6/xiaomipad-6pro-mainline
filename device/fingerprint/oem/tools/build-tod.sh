@@ -16,4 +16,9 @@ mkdir -p "$out"
     "$root/src/fingerprint/libfprint-tod/fpc-oem-print.c" \
     -o "$out/fpc-oem-print" \
     $(pkg-config --libs libfprint-2 libfprint-2-tod-1)
-(cd "$out" && sha256sum libfprint-tod-fpc1264-oem.so fpc-oem-print > SHA256SUMS)
+"$cc" -O2 -std=c11 -D_GNU_SOURCE -Wall -Wextra -Werror \
+    $(pkg-config --cflags libfprint-2 gio-2.0 gobject-2.0 glib-2.0) \
+    "$root/src/fingerprint/libfprint-tod/fpc-oem-extract.c" \
+    -o "$out/fpc-oem-extract" \
+    $(pkg-config --libs libfprint-2 gio-2.0 gobject-2.0 glib-2.0)
+(cd "$out" && sha256sum libfprint-tod-fpc1264-oem.so fpc-oem-print fpc-oem-extract > SHA256SUMS)

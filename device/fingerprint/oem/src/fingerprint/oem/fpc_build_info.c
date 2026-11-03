@@ -712,41 +712,44 @@ static int wait_finger_down(int fd, uint32_t session, int power_fd)
 	return wait_sensor_irq(power_fd, "down", 120000);
 }
 
-/* HAL fpc_tee_wait_finger_lost: 10/2, IRQ, 10/11, 10/1. */
+/* Keep OEM qualification, but also check real finger state when the
+ * edge was lost between CHECK_FINGER_LOST and WAIT_FINGER_LOST. A short
+ * timeout is not success: only the TA's CHECK_FINGER_LOST confirms lift. */
 static int wait_finger_lost(int fd, uint32_t session, int power_fd)
 {
-	int status = query(fd, session, SENSOR_CHECK_FINGER_LOST);
-
-	if (status < 0)
-		return -1;
-	if (status)
-		return 0;
-	if (clear_pending_irq(power_fd, "before_up"))
-		return -1;
-	for (unsigned int attempt = 0; attempt < 600; attempt++) {
-		status = query(fd, session, SENSOR_WAIT_FINGER_LOST);
-		if (status < 0)
-			return -1;
-		if (status)
-			return status;
-		if (wait_sensor_irq(power_fd, "up", 30000))
-			return -1;
-		status = query(fd, session, SENSOR_CHECK_FINGER_STATE);
-		if (status < 0)
-			return -1;
-		if (!status) {
-			usleep(50000);
-			continue;
-		}
-		status = query(fd, session, SENSOR_CHECK_FINGER_LOST);
-		if (status < 0)
-			return -1;
-		if (status)
-			return 0;
-		usleep(50000);
-	}
-	fprintf(stderr, "finger_lost_wait_exhausted=600\n");
-	return -1;
+    int status = query(fd, session, SENSOR_CHECK_FINGER_LOST);
+    if (status < 0) return -1;
+    if (status) return 0;
+    if (clear_pending_irq(power_fd, "before_up")) return -1;
+    for (unsigned int attempt = 0; attempt < 480 && !operation_cancelled; attempt++) {
+        status = query(fd, session, SENSOR_WAIT_FINGER_LOST);
+        if (status < 0) return -1;
+        if (status) return status;
+        /* Cover a lift between the first check and arming. */
+        status = query(fd, session, SENSOR_CHECK_FINGER_LOST);
+        if (status < 0) return -1;
+        if (status) {
+            printf("finger_lift_confirmed=state_after_arm\n");
+            return 0;
+        }
+        struct pollfd event = { .fd = power_fd, .events = POLLIN };
+        int ready = poll(&event, 1, 250);
+        if (operation_cancelled) return -1;
+        if (ready < 0 && errno == EINTR) continue;
+        if (ready < 0 || (event.revents & (POLLERR | POLLHUP | POLLNVAL))) return -1;
+        if (ready > 0 && (event.revents & POLLIN)) {
+            status = query(fd, session, SENSOR_CHECK_FINGER_STATE);
+            if (status < 0) return -1;
+        }
+        status = query(fd, session, SENSOR_CHECK_FINGER_LOST);
+        if (status < 0) return -1;
+        if (status) {
+            printf("finger_lift_confirmed=%s\n", ready > 0 ? "irq_and_state" : "state_poll");
+            return 0;
+        }
+    }
+    fprintf(stderr, "finger_lost_wait_exhausted_or_cancelled=1\n");
+    return -1;
 }
 
 /* OEM HAL store_template_db_host: 4/6 size, 4/14 begin, 4/16 read,

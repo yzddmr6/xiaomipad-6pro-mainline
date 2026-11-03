@@ -94,11 +94,11 @@ def main():
         lock = os.open(device_store / ".operation.lock", os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         target = device_store / format(finger, "x")
-        # The current TOD Verify path selects one print; 1:N Identify is not
-        # implemented. Keep the initial usable scope to one finger per user.
-        if any(os.path.lexists(device_store / format(value, "x")) for value in range(1, 11)):
-            print("oem_print_publication=REFUSED existing_print_preserved=1 "
-                  "scope=one_finger_per_user touch_not_collected=1", file=sys.stderr)
+        # Every finger owns a separate single-template database; only the same
+        # finger is refused here. Verification walks all stored prints serially.
+        if os.path.lexists(target):
+            print("oem_print_publication=REFUSED existing_finger_preserved=1 "
+                  "scope=one_database_per_finger touch_not_collected=1", file=sys.stderr)
             return 2
         pending = Path("/var/lib/liuqin-fingerprint/pending") / user.pw_name
         private_directory(pending)

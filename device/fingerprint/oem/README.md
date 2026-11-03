@@ -9,9 +9,12 @@ cancellation to that dialog; fprintd stores the resulting fingerprint and
 provides the standard GDM login and lock-screen verification interface. It does
 not add a separate everyday unlock application or modify GNOME Settings.
 
-The current candidate supports **one configured Linux account and one finger**.
-Native enrollment and login/unlock have passed on the test unit as described
-below. The default image/kernel lock is not changed by this optional component.
+The current candidate supports **one configured Linux account** and one or more
+fingers, each stored as its own single-template OEM database. Native enrollment
+and login/unlock have passed on the test unit as described below; the
+multi-finger acceptance and the optional Settings progress line are documented
+in the [one-database-per-finger notes](../../../docs/FINGERPRINT-MULTIDB.md).
+The default image/kernel lock is not changed by this optional component.
 
 ## Current validation boundary
 
@@ -22,8 +25,10 @@ other-finger rejection and native lock-screen unlock passed on that combination.
 After writing the matching boot images and modules, an ordinary reboot also
 reached the desktop through `gdm-fingerprint`, without entering the login password
 or manually warming Keymaster/TEE. DP output was subsequently confirmed on the
-same persistent boot. This is one configured account/finger on the known 256 GB
-test unit, not a release or a claim covering other devices and adapters.
+same persistent boot. That acceptance covered one configured account and one
+finger on the known 256 GB test unit; the later per-finger multi-database
+acceptance was run on the 512 GB unit. This is not a release or a claim covering
+other devices and adapters.
 
 The fprintd service uses `UMask=0077`: native enrollment must create root-owned
 mode-0600 templates accepted by the adaptive-update writer. Earlier development

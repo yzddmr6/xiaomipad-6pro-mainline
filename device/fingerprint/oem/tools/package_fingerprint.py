@@ -46,12 +46,13 @@ def main():
     updates["fprintd"] = options.build / "fprintd"
     updates["pam-input"] = options.build / "pam-input"
     updates["fpc-oem-print"] = options.build / "fpc-oem-print"
+    updates["fpc-oem-extract"] = options.build / "fpc-oem-extract"
     for path in (root / "src/fingerprint/oem").glob("*"):
         if path.suffix == ".py":
             updates[path.name] = path
         if path.suffix in (".py", ".c", ".sh"):
             updates["source/" + path.name] = path
-    for name in ("fpc1264-oem.c", "fpc-oem-print.c"):
+    for name in ("fpc1264-oem.c", "fpc-oem-print.c", "fpc-oem-extract.c"):
         updates["source/"+name] = root / "src/fingerprint/libfprint-tod" / name
     for path in (root / "src/fingerprint/deployment").glob("*"):
         if path.is_file():
@@ -111,7 +112,8 @@ def main():
         candidate["native_user_setup"] = "gnome-settings-polkit"
         candidate["credential_creation"] = "authorized_enrollment_only; writes Gatekeeper/RPMB state"
     candidate.update(schema=1, id="liuqin-fpc-oem-candidate-20261002-v1", native_uid=(0x60000000 if interface == "fprintd" else 0x50000000) | candidate["linux_uid"],
-                     program_path="/usr/local/lib/liuqin-fpc-oem", supports_one_finger_per_user=True,
+                     program_path="/usr/local/lib/liuqin-fpc-oem", supports_one_finger_per_user=False,
+                     supports_multiple_fingers_per_user=True,
                      actual_biometric_acceptance="pending", partition_writes=0,
                      kernel_module_sha256=hashlib.sha256(options.kernel_module.read_bytes()).hexdigest())
     stage.mkdir(parents=True, exist_ok=True)
@@ -132,7 +134,7 @@ def main():
     (stage / "SHA256.json").write_text(json.dumps(hashes, indent=2)+"\n")
     (stage / "SHA256SUMS").write_text("".join(d+"  "+n+"\n" for n,d in hashes.items()))
     binary_names = {"fprintd", "fpc_build_info", "qsee-gatekeeper", "qsee-supplicant", "qsee-app-loader", "pam-input", "fpc-oem-print",
-                    "ufs-rpmb-provider/liuqin-rpmb-supplicant"}
+                    "fpc-oem-extract", "ufs-rpmb-provider/liuqin-rpmb-supplicant"}
     for path in stage.rglob("*"):
         if path.is_dir():
             path.chmod(0o700)

@@ -106,7 +106,8 @@ def prepare_payload(payload, version):
         "schema", "id", "kernel_release", "base_kernel", "kernel_source_diff_sha256",
         "target_libfprint_package", "build_kind", "deployment_mode", "enrollment_interface",
         "native_user_setup", "credential_creation", "program_path",
-        "supports_one_finger_per_user", "partition_writes", "kernel_module_sha256")}
+        "supports_one_finger_per_user", "supports_multiple_fingers_per_user",
+        "partition_writes", "kernel_module_sha256")}
     candidate.update(account_profile="primary-uid-1000", linux_uid=1000,
                      native_uid=0x60000000 | 1000, firmware_source="modem_a-read-only",
                      release_version=version, binary_bundle_sha256=BUNDLE_SHA256,

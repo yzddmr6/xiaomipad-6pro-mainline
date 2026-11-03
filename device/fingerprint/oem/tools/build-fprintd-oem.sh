@@ -15,6 +15,7 @@ mkdir -p "$out"
 python3 "$root/src/fingerprint/fprintd-oem/prepare.py" \
     "$vendor" "$out/source" \
     --patch-output "$out/fprintd-oem-update.patch"
+patch -p1 -d "$out/source" -i "$root/src/fingerprint/fprintd-oem/fprintd-multidb.patch"
 cross_args=()
 if [[ -n ${MESON_CROSS_FILE:-} ]]; then
     cross_args=(--cross-file "$MESON_CROSS_FILE")

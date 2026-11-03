@@ -16,8 +16,8 @@ physical result.
 | `src/fingerprint/oem` | OEM FPC/Keymaster/Gatekeeper clients, Linux PAM credential input, authorised enrolment and private runtime |
 | `src/third_party/qsee-supplicant` | Listener transport and authenticated UFS RPMB provider |
 | `src/third_party/QCBOR` | Gatekeeper CBOR build dependency |
-| `src/fingerprint/libfprint-tod` | Single-finger OEM TOD adapter and FpPrint serializer |
-| `src/fingerprint/fprintd-oem` | Private fprintd source preparation and durable adaptive update |
+| `src/fingerprint/libfprint-tod` | Per-finger OEM TOD adapter and FpPrint serializer |
+| `src/fingerprint/fprintd-oem` | Private fprintd source preparation, durable adaptive update and serial multi-print verify |
 | `src/fingerprint/deployment` | Install, late module load, system D-Bus verification, acceptance and recovery |
 | `tools` | Component builds and public program packaging |
 

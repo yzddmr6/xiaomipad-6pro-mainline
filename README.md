@@ -10,7 +10,7 @@ Official builds are published only in this repository's [Releases](https://githu
 
 Main updates since the initial open-source release:
 
-- **Native fingerprint login**: enroll in Ubuntu Settings → Users, then unlock the screen or log in after boot. Same-finger acceptance and other-finger rejection are verified; currently limited to the first account and one finger.
+- **Native fingerprint login**: enroll in Ubuntu Settings → Users, then unlock the screen or log in after boot. Same-finger acceptance and other-finger rejection are verified; each finger is stored and deleted independently, currently limited to the first account.
 - **DP external display**: external picture, internal-display recovery after unplugging and USB recovery on reconnect are verified. Other adapters, DP audio and high refresh rates remain unverified.
 - **Dual boot and camera**: added an installation layout that preserves Android and a KernelSU module to return to Ubuntu, fixed startup failures caused by stock firmware, added experimental rear-camera support and fixed the speakers. See the installation notes below for dual-boot validation scope and the support table for camera limitations.
 - **Input, recording and charging**: fixed the magnetic keyboard touchpad, added touch-panel variants, USB OTG, single-microphone recording and charging authentication. The kernel configuration required by Waydroid is included; Waydroid remains experimental without end-to-end device acceptance.
@@ -76,7 +76,7 @@ Verified features at a glance; see the table below for the scope of each:
 | Manual brightness | Kinetic KTZ8866 backlight | ✅ Working | Backlight and manual brightness adjustment |
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Driver selects the firmware by panel module; touch input, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
-| Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; currently limited to the first account (UID 1000) and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
+| Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Native Settings enrollment, one template per finger, per-finger deletion, same-finger acceptance, lock-screen unlock and fingerprint login after ordinary reboot; currently limited to the first account (UID 1000), see [fingerprint guide](docs/FINGERPRINT.md) and [one database per finger](docs/FINGERPRINT-MULTIDB.md) |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
 

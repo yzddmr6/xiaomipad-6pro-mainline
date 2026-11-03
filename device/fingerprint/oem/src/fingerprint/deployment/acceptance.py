@@ -124,8 +124,6 @@ def main():
     load()
     store = Path("/var/lib/fprint") / user / "fpc1264_oem/liuqin-fpc1264-oem"
     prints = [p for p in store.iterdir() if p.name in tuple(format(n,"x") for n in range(1,11))] if store.exists() else []
-    if len(prints) > 1:
-        raise RuntimeError("The current candidate supports one fingerprint per Linux user")
     if options.status:
         print(json.dumps({"candidate": candidate["id"], "user": user, "published_oem_prints": len(prints),
                           "physical_acceptance_pending": not (Path("/var/lib/liuqin-fingerprint/acceptance.json").exists()),

@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later
  * Explicit TOD adapter for the OEM FPC1264 match path. No software matching.
- * Each FpPrint contains one opaque, single-finger OEM database (uay), version 1.
- * fprintd owns enrollment authorization and persistence. A root-only provider
- * supplies the OEM credential and returns one opaque enrolled database.
+ * Each FpPrint contains one opaque OEM database (uay), version 1. That database
+ * is the per-account OEM credential and may hold several registered fingers: an
+ * additional enrollment extends the stored database through the provider's
+ * existing-database pipeline, so every earlier finger keeps matching. fprintd
+ * owns enrollment authorization and persistence. A root-only provider supplies
+ * the OEM credential and returns one opaque enrolled database.
  */
 #include <gio/gio.h>
 #include <gmodule.h>
@@ -33,6 +36,9 @@ typedef struct {
   gboolean enrol_cleaned;
   gboolean enrol_succeeded;
   gboolean enrol_existing;
+  /* Finger of the single stored print that an extended database belongs to.
+   * Zero means this enrollment created a fresh database. */
+  gint enrol_canonical_finger;
 } FpiDeviceFpc1264Oem;
 
 typedef struct { FpDeviceClass parent; } FpiDeviceFpc1264OemClass;
@@ -60,6 +66,7 @@ clear_operation (FpiDeviceFpc1264Oem *self)
   self->enrol_cleaned = FALSE;
   self->enrol_succeeded = FALSE;
   self->enrol_existing = FALSE;
+  self->enrol_canonical_finger = 0;
 }
 
 static void
@@ -154,11 +161,23 @@ enrol_finished (GObject *source, GAsyncResult *result, gpointer user_data)
     error = g_steal_pointer (&self->enrol_error);
   } else if (!valid || cancelled) {
     g_clear_error (&error);
-    error = fpi_device_error_new_msg (self->enrol_existing ? FP_DEVICE_ERROR_DATA_FULL : FP_DEVICE_ERROR_GENERAL,
-                                      self->enrol_existing ? "Only one enrolled finger per user is supported" :
+    error = fpi_device_error_new_msg (FP_DEVICE_ERROR_GENERAL,
+                                      self->enrol_existing ?
+                                      "The stored OEM fingerprint database is in an unsupported state; nothing was changed" :
                                       "OEM enrollment did not finish with confirmed cleanup");
   } else if (load_enrolled_database (self, &error)) {
     print = g_steal_pointer (&self->enrolled_print);
+    /* An extended database still belongs to the print that is already stored,
+     * so report that finger to fprintd. Its storage layer then replaces the one
+     * existing template file instead of adding a second, contradictory print. */
+    if (print && self->enrol_canonical_finger > 0 &&
+        self->enrol_canonical_finger != (gint) fp_print_get_finger (print))
+      {
+        g_message ("OEM enroll database extended under stored finger %d "
+                   "(requested finger %d)", self->enrol_canonical_finger,
+                   (gint) fp_print_get_finger (print));
+        fp_print_set_finger (print, (FpFinger) self->enrol_canonical_finger);
+      }
   }
   if (!print && (!cancelled || !self->enrol_cleaned))
     g_warning ("OEM enroll runtime exit=%d cleanup_complete=%d enrolled=%d",
@@ -188,7 +207,9 @@ enrol_status_line (FpDevice *device, const gchar *line)
   const gchar *failures[] = {
     "native_enrol_runtime=FAILED ", "native_enrol=FAILED ",
     "pipeline_incomplete=", "end_enrol_not_submitted=",
-    "enrol_authorization=TA_rejected", NULL
+    "enrol_authorization=TA_rejected",
+    /* Status-only lines from the OEM client; never template bytes. */
+    "db_import", "db_export", "enrol_challenge_", "oem_extract=", NULL
   };
 
   /* The provider guarantees these status/phase fields contain no credential,
@@ -203,9 +224,21 @@ enrol_status_line (FpDevice *device, const gchar *line)
    * credential-creation runtime's earlier cleanup is deliberately ignored. */
   if (g_str_equal (line, "native_enrol_cleanup=OK"))
     self->enrol_cleaned = TRUE;
-  else if (g_str_equal (line, "native_enrol=OK single_finger_database=1"))
-    self->enrol_succeeded = self->enrol_cleaned;
-  else if (g_str_equal (line, "native_enrol=REFUSED existing_template=1"))
+  else if (g_str_has_prefix (line, "native_enrol=OK "))
+    {
+      /* database=fresh canonical_finger=0 keeps the requested finger;
+       * database=extended canonical_finger=N extends the stored print of
+       * finger N so fprintd replaces that one template in place. */
+      const gchar *marker = strstr (line, "canonical_finger=");
+      gint finger = 0;
+      if (marker && sscanf (marker, "canonical_finger=%d", &finger) == 1 &&
+          finger > 0 && finger <= 10)
+        self->enrol_canonical_finger = finger;
+      self->enrol_succeeded = self->enrol_cleaned;
+    }
+  else if (g_str_has_prefix (line, "native_enrol=REFUSED existing_template="))
+    self->enrol_existing = TRUE;
+  else if (g_str_has_prefix (line, "native_enrol=REFUSED "))
     self->enrol_existing = TRUE;
   else if (!self->cancelled &&
            sscanf (line, "enrol_progress_status=%d remaining=%u%c", &status, &remaining, &extra) == 2) {
@@ -312,12 +345,16 @@ enrol (FpDevice *device)
   self->directory = g_dir_make_tmp ("liuqin-fpc-enrol-XXXXXX", &error);
   if (!self->directory)
     goto failed;
-  self->database = g_build_filename (self->directory, "single-finger.db", NULL);
+  self->database = g_build_filename (self->directory, "oem-database.db", NULL);
   self->cancelled = FALSE;
   self->enrolled_print = g_object_ref (print);
-  fpi_device_set_nr_enroll_stages (device, 20);
+  fpi_device_set_nr_enroll_stages (device, 26);
   launcher = g_subprocess_launcher_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_MERGE);
   g_subprocess_launcher_setenv (launcher, "PYTHONUNBUFFERED", "1", TRUE);
+  {
+    g_autofree gchar *finger = g_strdup_printf ("%d", (gint) fp_print_get_finger (print));
+    g_subprocess_launcher_setenv (launcher, "FP_ENROL_FINGER", finger, TRUE);
+  }
   self->child = g_subprocess_launcher_spawn (launcher, &error, "/usr/bin/python3", provider,
                                             "--enrol", username, self->database, NULL);
   if (!self->child)
@@ -511,8 +548,8 @@ verify (FpDevice *device)
   self->directory = g_dir_make_tmp ("liuqin-fpc-verify-XXXXXX", &error);
   if (!self->directory)
     goto failed;
-  self->database = g_build_filename (self->directory, "single-finger.db", NULL);
-  self->updated_database = g_build_filename (self->directory, "updated-single-finger.db", NULL);
+  self->database = g_build_filename (self->directory, "oem-database.db", NULL);
+  self->updated_database = g_build_filename (self->directory, "updated-oem-database.db", NULL);
   descriptor = g_open (self->database, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
   if (descriptor < 0)
     goto io_failure;
@@ -534,7 +571,7 @@ verify (FpDevice *device)
   g_object_set_data (G_OBJECT (print), "liuqin-fpc-oem-original", NULL);
   self->child = g_subprocess_new (G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE,
                                  &error, "/usr/bin/python3", runtime, "--ufs-rpmb-authenticated",
-                                 "--match-single", self->database, self->updated_database, NULL);
+                                 "--match-existing", self->database, self->updated_database, NULL);
   if (!self->child)
     goto failed;
   fpi_device_report_finger_status (device, FP_FINGER_STATUS_NEEDED);
@@ -543,7 +580,7 @@ verify (FpDevice *device)
   return;
 
 invalid_print:
-  error = fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID, "A versioned single-finger OEM database is required");
+  error = fpi_device_error_new_msg (FP_DEVICE_ERROR_DATA_INVALID, "A versioned OEM fingerprint database is required");
   goto failed;
 io_failure:
   error = g_error_new (G_IO_ERROR, g_io_error_from_errno (errno), "Private database staging failed");
@@ -582,7 +619,7 @@ fpi_device_fpc1264_oem_class_init (FpiDeviceFpc1264OemClass *klass)
   device->scan_type = FP_SCAN_TYPE_PRESS;
   device->id_table = devices;
   device->temp_hot_seconds = -1;
-  device->nr_enroll_stages = 20;
+  device->nr_enroll_stages = 26;
   device->probe = probe;
   device->open = open_device;
   device->close = close_device;
@@ -590,6 +627,9 @@ fpi_device_fpc1264_oem_class_init (FpiDeviceFpc1264OemClass *klass)
   device->verify = verify;
   device->cancel = cancel;
   fpi_device_class_auto_initialize_features (device);
+  /* Visible in the fprintd journal at module load: proves which driver build is
+   * actually running (multi-finger database support + FP3 extraction). */
+  g_message ("fpc1264_oem TOD driver build=20261030-single-db-v2-progress database=per-finger extract=1");
 }
 
 G_MODULE_EXPORT GType

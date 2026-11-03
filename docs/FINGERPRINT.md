@@ -23,8 +23,11 @@ full installation, initial setup and user acceptance on the test unit.
 
 v0.6.0 automatically supports the first local account created by initial setup
 (UID 1000), without a preconfigured username. Use the exact matching kernel, FPC
-module, device tree and OEM firmware. The current scope is **one finger for that account**. Kernel/module hashes and wiring
-checks must not be bypassed.
+module, device tree and OEM firmware. Each enrolled finger is stored as its own
+single-template OEM database; one or more fingers are supported for that
+account. Kernel/module hashes and wiring checks must not be bypassed. See
+[one database per finger](FINGERPRINT-MULTIDB.md) for the multi-finger design,
+the serial verification path and the optional Settings progress line.
 
 A temporary RAM boot does not install a kernel for the next power-on. Fingerprint
 availability after reboot requires the matching kernel and modules to be
@@ -45,9 +48,10 @@ lock screen. The normal password-login stack is preserved, so password login
 remains the fallback. The presence of the Settings row or a running service does
 not demonstrate successful enrollment or unlock.
 
-Another enrollment is refused while a finger is already stored for this
-account. If intentionally replacing it, use the Settings deletion control first;
-do not remove private files to force re-enrollment.
+Repeat the enrollment for each finger. Every finger creates its own template
+file and its own Settings row, and can be deleted independently. Do not enroll
+the same finger twice; it creates a second database that competes for the same
+finger.
 
 ## Passwords and existing identities
 

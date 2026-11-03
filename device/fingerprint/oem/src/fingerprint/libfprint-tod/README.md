@@ -21,7 +21,9 @@ session, accepted END, one-template inventory and opaque database export.
 deserialize/compatibility/equality in process. `enrol_publish.py` publishes
 exclusively to the normal private fprintd file store. Accepted export survives
 publication failure in the pending directory; uncertain export is preserved
-without automatically repeating enrolment. Current scope is one finger/user.
+without automatically repeating enrolment. Each requested finger creates its
+own single-template database; the daemon walks the stored prints serially during
+verification. See the [one-database-per-finger notes](../../../../../../docs/FINGERPRINT-MULTIDB.md).
 
 The adapter now requests UPDATED_DATABASE on genuine matches. Completed,
 cleaned success may replace the in-memory enrolled print and attach its original

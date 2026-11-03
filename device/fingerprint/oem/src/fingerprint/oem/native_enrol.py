@@ -27,7 +27,8 @@ CLEANUP = "oem_runtime_cleanup firmware_path_restored=1 sensor_power_off=1 liste
 FORWARD = ("READY ", "enrol_progress_status=", "capture_rejected=", "oem_runtime_cleanup ",
            "native_credential_provider=FAILED", "native_credential_provider=BUSY",
            "pipeline_incomplete=", "end_enrol_not_submitted=", "enrol_authorization=",
-           "oem_runtime_timed_out=", "oem_runtime_cancelled=")
+           "oem_runtime_timed_out=", "oem_runtime_cancelled=", "oem_extract=",
+           "db_import", "db_export", "enrol_challenge_")
 
 
 def private_directory(path):
@@ -77,6 +78,8 @@ class Runtime:
         self.cancelled = False
         self.creating = False
         self.cleaned = True  # No hardware child has been started yet.
+        # Finger of the stored print whose database this enrollment extends.
+        self.canonical_finger = 0
 
     def cancel(self, signum, frame):
         self.cancelled = True
@@ -86,15 +89,18 @@ class Runtime:
             except ProcessLookupError:
                 pass
 
-    def run(self, command, input_fd, finish_creation=False):
+    def run(self, command, input_fds, finish_creation=False):
         if self.cancelled and not finish_creation:
             return 1
+        # A single descriptor keeps every existing call site unchanged; an
+        # iterable is accepted for operations that need more than one FD.
+        pass_fds = (input_fds,) if isinstance(input_fds, int) else tuple(input_fds)
         cleanup = False
         previous_cleaned = self.cleaned
         self.cleaned = False
         self.creating = finish_creation
         try:
-            self.child = subprocess.Popen(command, pass_fds=(input_fd,), stdin=subprocess.DEVNULL,
+            self.child = subprocess.Popen(command, pass_fds=pass_fds, stdin=subprocess.DEVNULL,
                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                           text=True, errors="replace", bufsize=1,
                                           env=dict(os.environ, PYTHONUNBUFFERED="1"))
@@ -136,7 +142,8 @@ def enrol(username, output, runtime):
     if user.pw_name != username or not 0 < user.pw_uid < 0x10000000:
         raise ValueError("unsupported target account")
     here = Path(__file__).resolve().parent
-    for path in (here, here / "native_credentials.py", here / "CANDIDATE.json"):
+    for path in (here, here / "native_credentials.py", here / "CANDIDATE.json",
+                 here / "fpc-oem-extract"):
         info = path.lstat()
         if stat.S_ISLNK(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_mode & 0o022:
             raise ValueError("untrusted program bundle")
@@ -155,9 +162,14 @@ def enrol(username, output, runtime):
     else:
         raise ValueError("unsupported account profile")
     prints = FPRINT_ROOT / username / "fpc1264_oem" / "liuqin-fpc1264-oem"
-    if any(os.path.lexists(prints / finger) for finger in "123456789a"):
-        print("native_enrol=REFUSED existing_template=1", flush=True)
-        return 2
+    # Every registration creates a NEW single-template TA database.
+    raw_finger = os.environ.get("FP_ENROL_FINGER", "")
+    if not raw_finger.isdigit() or not 1 <= int(raw_finger) <= 10:
+        raise ValueError("explicit requested finger required for single-db enrollment")
+    if os.path.lexists(prints / format(int(raw_finger), "x")):
+        raise ValueError("requested finger already exists")
+    existing = None
+    canonical_finger = 0
     if not output.is_absolute() or output.parent.resolve() != output.parent or os.path.lexists(output):
         raise ValueError("output must be a new private absolute path")
     parent = output.parent.lstat()
@@ -221,12 +233,57 @@ def enrol(username, output, runtime):
             sync_directory(account)
         if runtime.cancelled:
             return 1
-        # The existing FPC exporter uses O_EXCL and checks exactly one template.
-        # Keep its output private until the final enrol runtime has fully cleaned.
+        # The existing FPC exporter uses O_EXCL on its output and, for an
+        # extended database, loads the stored one as a private copy first: the
+        # live template file is only ever read here. Keep the output private
+        # until the final enrol runtime has fully cleaned.
         with tempfile.TemporaryDirectory(prefix=".native-enrol-", dir=output.parent) as temporary:
             database = Path(temporary) / "database"
+            base = None
+            if existing is not None:
+                # fprintd stores an FP3 FpPrint container; the OEM client needs
+                # the raw TA database inside its fpi-data. Copy first, then
+                # extract, so the live template file is only ever read here.
+                stored = Path(temporary) / "stored-print"
+                shutil.copyfile(existing, stored)
+                os.chmod(stored, 0o600)
+                stored_info = stored.lstat()
+                if (not stat.S_ISREG(stored_info.st_mode) or
+                        (stored_info.st_uid, stored_info.st_gid, stat.S_IMODE(stored_info.st_mode)) != (0, 0, 0o600) or
+                        not 0 < stored_info.st_size <= 16 * 1024 * 1024):
+                    raise ValueError("stored OEM print is not a private template")
+                base = Path(temporary) / "base-database"
+                extract = subprocess.run(
+                    [str(here / "fpc-oem-extract"), "--extract", username, str(canonical_finger),
+                     str(stored), str(base)],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, errors="replace")
+                for line in extract.stdout.splitlines():
+                    if line.startswith("oem_extract="):
+                        print(line, flush=True)
+                if extract.returncode:
+                    print(f"native_enrol_runtime=FAILED operation=extract "
+                          f"status={extract.returncode}", file=sys.stderr, flush=True)
+                    return 1
+                base_info = base.lstat()
+                if (not stat.S_ISREG(base_info.st_mode) or
+                        (base_info.st_uid, base_info.st_gid, stat.S_IMODE(base_info.st_mode)) != (0, 0, 0o600) or
+                        not 84 < base_info.st_size <= 16 * 1024 * 1024):
+                    raise ValueError("extracted OEM database is not private")
+                header_fd = os.open(base, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+                try:
+                    header = os.read(header_fd, 4)
+                finally:
+                    os.close(header_fd)
+                if len(header) != 4 or int.from_bytes(header, "little") + 84 != base_info.st_size:
+                    raise ValueError("extracted OEM database header is invalid")
             os.lseek(secret_fd, 0, os.SEEK_SET)
-            status = runtime.run([*command, "--enrol", str(database), str(uid), str(secret_fd)], secret_fd)
+            if base is not None:
+                # Add one finger to the existing database (OEM existing pipeline).
+                status = runtime.run([*command, "--enrol-existing", str(base), str(database),
+                                      str(uid), str(secret_fd)], secret_fd)
+            else:
+                status = runtime.run([*command, "--enrol", str(database), str(uid), str(secret_fd)], secret_fd)
             if status or not runtime.cleaned or runtime.cancelled:
                 print(f"native_enrol_runtime=FAILED operation=enrol status={status} "
                       f"cleanup_complete={int(runtime.cleaned)}", file=sys.stderr, flush=True)
@@ -254,6 +311,7 @@ def enrol(username, output, runtime):
             finally:
                 os.close(source_fd)
             sync_directory(output.parent)
+        runtime.canonical_finger = canonical_finger
         return 0
     finally:
         secret[:] = bytes(len(secret))
@@ -290,7 +348,12 @@ def main(arguments=None):
         print("native_enrol=CANCELLED", flush=True)
         return 1
     if result == 0 and runtime.cleaned:
-        print("native_enrol=OK single_finger_database=1", flush=True)
+        # The driver maps canonical_finger onto the stored print: 0 means this
+        # enrollment created a fresh database under the requested finger, N>0
+        # means the database was extended and still belongs to finger N.
+        kind = "extended" if runtime.canonical_finger else "fresh"
+        print(f"native_enrol=OK database={kind} "
+              f"canonical_finger={runtime.canonical_finger}", flush=True)
     return result
 
 
