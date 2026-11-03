@@ -13,7 +13,7 @@ Main updates since the initial open-source release:
 - **Native fingerprint login**: enroll in Ubuntu Settings → Users, then unlock the screen or log in after boot. Same-finger acceptance and other-finger rejection are verified; currently limited to the first account and one finger.
 - **DP external display**: external picture, internal-display recovery after unplugging and USB recovery on reconnect are verified. Other adapters, DP audio and high refresh rates remain unverified.
 - **Dual boot and camera**: added an installation layout that preserves Android and a KernelSU module to return to Ubuntu, fixed startup failures caused by stock firmware, added experimental rear-camera support and fixed the speakers. See the installation notes below for dual-boot validation scope and the support table for camera limitations.
-- **Input, recording and charging**: fixed the magnetic keyboard touchpad, added touch-panel variants, USB OTG, single-microphone recording and charging authentication. The kernel configuration required by Waydroid is included; Waydroid remains experimental without end-to-end device acceptance.
+- **Input, recording and charging**: fixed the magnetic keyboard touchpad, added touch-panel variants, USB OTG, single-microphone recording, charging authentication and MiPPS fast charging with an original Xiaomi adapter. The kernel configuration required by Waydroid is included; Waydroid remains experimental without end-to-end device acceptance.
 
 ## 📮 Follow & Discuss
 
@@ -118,7 +118,7 @@ Verified features at a glance; see the table below for the scope of each:
 | Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume; native lock-screen authentication verified |
 | Battery / basic charging | qcom_battmgr / UPower | ✅ Working | Capacity reporting, charging state and basic wall charging |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; heavy workloads may still discharge the battery |
-| Xiaomi proprietary fast charging | Vendor charging protocol | 🟡 Partial | Charger authentication integrated; battery authentication verified and PD adapters reach 9 V / 2 A. MiPPS and standard PPS fast charging await adapter validation |
+| Xiaomi proprietary fast charging | Vendor charging protocol | 🟡 Partial | MiPPS adapter authentication verified with an original 67 W adapter: 44–46 W into the battery at 34–36 % state of charge. Standard PPS fast charging still awaits a PPS adapter |
 | Charging while powered off | Boot-stage charging hold | 🟡 Partial | No complete charging display; use a long power-key press to boot while charging |
 | Suspend / resume | Linux power management | 🟡 Partial | Basic resume verified; peripheral recovery and deep-sleep power need further testing |
 | RTC / offline time retention | Qualcomm PMK8350 RTC | 🧪 Unverified | Network time synchronization works; offline writes and power-loss retention are not guaranteed |

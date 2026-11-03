@@ -12,6 +12,11 @@
 # (https://github.com/yzddmr6/xiaomipad-6pro-mainline/pull/7): renamed state
 # paths and unit, and the --allow-unverified-adapter switch for standard PPS
 # adapters.  The switch's cable capability gate was added on integration.
+#
+# The role-first sequence (--role-first) and the Android 7 -> 6 completion were
+# validated on liuqin hardware in November 2026 with an original Xiaomi 67 W
+# MDY-15-EQ adapter and with a Cuktech unit that implements the same protocol;
+# see docs/FASTCHARGE.md.
 
 import argparse
 import glob
@@ -21,6 +26,7 @@ import os
 import pwd
 import random
 import secrets
+import shlex
 import subprocess
 import sys
 import time
@@ -62,7 +68,11 @@ FAST_CHARGE_NOTIFICATION_TITLE = "Fast charge active"
 NOTIFICATION_STATE_FILE = "/run/liuqin-mipps-auth/last-notification"
 CHARGE_PROFILE_STATE_FILE = "/run/liuqin-mipps-auth/charge-profile"
 USB_ONLINE_STATE_FILE = "/run/liuqin-mipps-auth/usb-online"
+ROLE_FIRST_STATE_FILE = "/run/liuqin-mipps-auth/role-first-attempt"
 SYSTEMD_UNIT = "liuqin-mipps-auth.service"
+ROLE_READY_TIMEOUT = 8
+ROLE_REQUEST_TIMEOUT = 8
+ROLE_REQUEST_DELAY = 0.07
 ANDROID_CMD_SETTLE = {
     1: 0.005,
     2: 0.005,
@@ -485,6 +495,118 @@ def ensure_typec_host(timeout):
     return False
 
 
+def wait_source_ready(root, timeout):
+    """Wait until the attached source has negotiated a contract and the port
+    has settled in SNK_Ready.
+
+    The charger firmware rejects the Xiaomi UVDM handshake while it is still
+    negotiating, so the sequence must not start before this point.
+    """
+    deadline = time.monotonic() + timeout
+    real_type = None
+    state = None
+    while time.monotonic() < deadline:
+        real_type = current_string_value(root, "real_type")
+        state = current_string_value(root, "current_state")
+        if real_type in ("PD", "PD_PPS") and state == "SNK_Ready":
+            return True, real_type, state
+        time.sleep(0.1)
+    return False, real_type, state
+
+
+def request_host_data_role(port, timeout):
+    """Ask the Type-C port for the host data role, as the stock system does
+    while a Xiaomi adapter is attached.
+
+    The role attribute is written without a trailing newline so the sysfs store
+    receives exactly `host`.
+    """
+    command = f"printf host > {shlex.quote(os.path.join(port, 'data_role'))}"
+    try:
+        result = subprocess.run(["/bin/sh", "-c", command], text=True,
+                                capture_output=True, timeout=timeout)
+        return result.returncode, result.stderr.strip()
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def role_first_prelude(root):
+    """Sequence that must precede the adapter authentication.
+
+    Returns True when the normal authentication flow should continue, and
+    False when this attach has nothing left to do.
+
+    The host data role is requested only for adapters that identify as Xiaomi:
+    MiPPS runs in the host role on the stock system, while any other source (a
+    computer, a non-Xiaomi charger) must keep the negotiated device role so
+    that USB device mode keeps working.  A failed role request aborts before
+    any adapter command is sent, and the attempt is remembered for the current
+    Type-C attach so a hasty replug does not repeat the same handshake.
+    """
+    if not usb_is_online():
+        print("role_first=usb_offline_no_adapter_commands")
+        return False
+
+    adapter_svid = current_adapter_svid(root)
+    if adapter_svid != XIAOMI_SVID:
+        shown = "unknown" if adapter_svid is None else f"0x{adapter_svid:04x}"
+        print(f"role_first=skipped_non_xiaomi adapter_svid={shown}")
+        return True
+
+    # The fuel gauges must be authenticated before the charger handshake; the
+    # boot unit normally does this already, so this repeats it only if the run
+    # missed it (for example after a reboot without an adapter).
+    if not (node_is_one(root, "authentic") and node_is_one(root, "slave_authentic")):
+        enable_battery_auth(root)
+
+    port = find_typec_port()
+    if not port:
+        print("role_first=no_typec_port")
+        return False
+    try:
+        role = read_node(port, "data_role")
+    except OSError as e:
+        print(f"role_first=no_data_role: {e}")
+        return False
+
+    if pd_verified(root) and "[host]" in role:
+        print(f"role_first=already_verified fastchg_mode="
+              f"{current_string_value(root, 'fastchg_mode')}")
+        return False
+
+    attach_token = current_attach_token()
+    if attach_token and read_state_file(ROLE_FIRST_STATE_FILE) == attach_token:
+        print("role_first=already_attempted_this_attach")
+        return False
+
+    ready, real_type, state = wait_source_ready(root, ROLE_READY_TIMEOUT)
+    if not ready:
+        print(f"role_first=source_not_ready real_type={real_type} "
+              f"current_state={state}")
+        return False
+
+    if "[host]" not in role:
+        time.sleep(ROLE_REQUEST_DELAY)
+        print("role_request=begin")
+        returncode, stderr = request_host_data_role(port, ROLE_REQUEST_TIMEOUT)
+        try:
+            role = read_node(port, "data_role")
+        except OSError:
+            role = ""
+        print(f"role_request=end returncode={returncode} role={role} "
+              f"stderr={stderr}")
+        if returncode or "[host]" not in role:
+            if attach_token:
+                write_state_file(ROLE_FIRST_STATE_FILE, attach_token)
+            print("role_first=no_host_no_adapter_commands")
+            return False
+
+    if attach_token:
+        write_state_file(ROLE_FIRST_STATE_FILE, attach_token)
+    print("role_first=proceed")
+    return True
+
+
 def vdm_state(root):
     text = read_node(root, "request_vdm_cmd")
     state, _, payload = text.partition(",")
@@ -564,7 +686,7 @@ def should_skip_pdo2(root):
 
 
 def auth_already_completed(root, state):
-    return state in (6, 7)
+    return state in (6, 7) and pd_verified(root)
 
 
 def print_status(root):
@@ -637,8 +759,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--sysfs", help="directory containing request_vdm_cmd")
     parser.add_argument("--seed-index", type=int, choices=range(10), help="fixed seed index for repeatable tests")
+    parser.add_argument("--battery-auth-only", action="store_true",
+                        help="verify both fuel gauges without adapter commands")
     parser.add_argument("--no-data-role-swap", action="store_true",
                         help="do not request Type-C host data role before Xiaomi UVDM auth")
+    parser.add_argument("--role-first", action="store_true",
+                        help="wait for the source to be ready, take the host data role for a "
+                             "Xiaomi adapter and authenticate once per Type-C attach; validated "
+                             "sequence for MiPPS fast charging")
     parser.add_argument("--allow-unverified-adapter", action="store_true",
                         help="assert pd_verifed even when adapter authentication fails, "
                              "which enables standard PPS fast charging on third-party "
@@ -674,6 +802,15 @@ def main():
         return
 
     root = args.sysfs or find_xiaomi_dir()
+    if args.battery_auth_only:
+        enable_battery_auth(root)
+        print("battery_auth_only=completed")
+        return
+    if args.role_first:
+        if not role_first_prelude(root):
+            return
+        # The prelude owns the data role; the handshake must not swap it again.
+        args.no_data_role_swap = True
     if not wait_usb_online(args.timeout):
         print("usb_online=0")
         write_state_file(NOTIFICATION_STATE_FILE, "none")
@@ -727,46 +864,52 @@ def main():
 
         enable_battery_auth(root)
 
-        send_vdm(root, 1, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[1])
-        send_vdm(root, 2, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[2])
-        send_vdm(root, 3, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[3])
-        send_vdm(root, 4, SEEDS[seed_index], timeout=args.timeout,
-                 settle=ANDROID_CMD_SETTLE[4])
-
+        # Adapter authentication is best-effort: a non-Xiaomi PPS adapter may
+        # ignore the UVDM handshake entirely.  That must not abort the run,
+        # otherwise --allow-unverified-adapter can never assert the gate for
+        # exactly the adapters it was added for.
+        pd_auth = False
+        auth = ""
+        adapter_id = None
+        digest = ""
         challenge = secrets.token_hex(16)
         print(f"challenge={challenge}")
-        _, auth = send_vdm(root, 5, challenge, timeout=args.timeout,
-                           settle=ANDROID_CMD_SETTLE[5])
+        try:
+            send_vdm(root, 1, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[1])
+            send_vdm(root, 2, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[2])
+            send_vdm(root, 3, timeout=args.timeout, settle=ANDROID_CMD_SETTLE[3])
+            send_vdm(root, 4, SEEDS[seed_index], timeout=args.timeout,
+                     settle=ANDROID_CMD_SETTLE[4])
+            _, auth = send_vdm(root, 5, challenge, timeout=args.timeout,
+                               settle=ANDROID_CMD_SETTLE[5])
+            adapter_id = detect_adapter_id(root, args.timeout)
+        except UnsupportedChargerError as e:
+            print(f"warning: adapter authentication unavailable: {e}",
+                  file=sys.stderr)
 
-        adapter_id = detect_adapter_id(root, args.timeout)
-        if not adapter_id:
-            raise UnsupportedChargerError("adapter_id sysfs node did not report a valid adapter id",
-                                          terminal=True)
-
-        digest = hmac.new(bytes.fromhex(KEYS[seed_index]),
-                          bytes.fromhex(challenge + adapter_id),
-                          hashlib.sha256).hexdigest()
-        pd_auth = auth.lower()[:32] == digest[:32]
-        if not pd_auth:
-            print(
-                f"adapter auth mismatch: seed_index={seed_index} adapter_id={adapter_id} "
-                f"expected={digest[:32]} charger={auth[:32]}",
-                file=sys.stderr)
-        print(f"adapter_id={adapter_id}")
+        if adapter_id:
+            digest = hmac.new(bytes.fromhex(KEYS[seed_index]),
+                              bytes.fromhex(challenge + adapter_id),
+                              hashlib.sha256).hexdigest()
+            pd_auth = auth.lower()[:32] == digest[:32]
+            if not pd_auth:
+                print(
+                    f"adapter auth mismatch: seed_index={seed_index} adapter_id={adapter_id} "
+                    f"expected={digest[:32]} charger={auth[:32]}",
+                    file=sys.stderr)
+            print(f"adapter_id={adapter_id}")
+        else:
+            print("adapter_id=unavailable")
 
         pd_auth_payload = "01000000" if pd_auth else "00000000"
-        send_vdm(root, 6, pd_auth_payload, timeout=args.timeout, wait=False,
-                 settle=0.1)
-        if pd_auth:
-            try:
-                send_vdm(root, 8, digest[32:], timeout=args.timeout)
-                print("reverse_auth=1")
-            except UnsupportedChargerError as e:
-                print(f"warning: reverse_auth=0: {e}", file=sys.stderr)
+        if adapter_id:
+            send_vdm(root, 7, pd_auth_payload, timeout=args.timeout, wait=False,
+                     settle=0.1)
+            send_vdm(root, 6, pd_auth_payload, timeout=args.timeout, wait=False,
+                     settle=0.02)
+            print("adapter_sequence=android:7,6")
         else:
-            print("reverse_auth=0")
-        send_vdm(root, 7, pd_auth_payload, timeout=args.timeout, wait=False,
-                 settle=0.1)
+            print("adapter_auth_result=skipped")
 
         # pd_verifed is the firmware's gate on the high-voltage charge path and
         # is normally the outcome of the adapter authentication above.  Adapters
