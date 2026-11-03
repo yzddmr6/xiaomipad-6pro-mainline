@@ -6,5 +6,5 @@ ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/request_vdm_cm
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/flock -n -E 0 /run/liuqin-mipps-auth.lock \
-          /usr/local/libexec/liuqin-mipps-auth --timeout 4 --no-data-role-swap
-TimeoutStartSec=20
+          /usr/local/libexec/liuqin-mipps-auth --timeout 4 --no-data-role-swap --role-first
+TimeoutStartSec=30
