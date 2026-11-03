@@ -16,6 +16,10 @@ and 512 GB capacity variants are admitted by the rules below but have not been
 tested on real hardware; modified layouts are not supported. Do not change
 constants or bypass checks to force an installation.
 
+Field notes from one 512 GB single-system install are in [Ubuntu single-system
+on the 512 GB model](FLASHING-512GB.md); they record the AVB short-read trap and
+the resulting layout and are not an endorsement of modified layouts.
+
 The bootloader must be unlocked and slot A active. Device-side checks require
 these Linux sysfs values (capacities in 512-byte sectors, not filesystem
 blocks):
