@@ -1,6 +1,6 @@
 # Installation Steps
 
-[中文](INSTALL-TESTING.zh-CN.md)
+[中文](INSTALL-TESTING.md)
 
 Initial installation and first boot have been tested on a 256 GB unit. The
 128 GB and 512 GB variants are admitted by the rules in the

@@ -1,6 +1,6 @@
 # Installation
 
-[中文](FLASHING.zh-CN.md) | [Project overview](../README.en.md)
+[中文](FLASHING.md) | [Project overview](../README.en.md)
 
 ## Availability
 

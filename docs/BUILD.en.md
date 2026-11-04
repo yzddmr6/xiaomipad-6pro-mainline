@@ -1,6 +1,6 @@
 # Building
 
-[中文](BUILD.zh-CN.md) | [Project overview](../README.en.md)
+[中文](BUILD.md) | [Project overview](../README.en.md)
 
 ## Kernel
 

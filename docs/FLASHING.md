@@ -1,10 +1,10 @@
 # 安装指南
 
-[English](FLASHING.en.md) ｜ [项目首页](../README.zh-CN.md)
+[English](FLASHING.en.md) ｜ [项目首页](../README.md)
 
 ## 安装包
 
-请下载同一版本的全部安装文件，按照[安装步骤](INSTALL-TESTING.zh-CN.md)执行。
+请下载同一版本的全部安装文件，按照[安装步骤](INSTALL-TESTING.md)执行。
 系统归档可能分为多个文件，指南提供合并命令；不要混用版本。
 
 ## 适用设备
@@ -54,7 +54,7 @@ Bootloader 解锁。
 Ubuntu 提供"重启到 Android"入口，Android 通过 KernelSU 模块提供"Reboot to Ubuntu"按钮。
 
 两个方向的切换均尚未经真机验证。命令、安全规则与修复方法见
-[双系统切换](INSTALL-TESTING.zh-CN.md#双系统切换)。
+[双系统切换](INSTALL-TESTING.md#双系统切换)。
 
 ## 发布内容
 

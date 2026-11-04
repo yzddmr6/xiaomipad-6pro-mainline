@@ -179,8 +179,8 @@ def main():
             shutil.copytree(out / 'bundle', destination,
                             ignore=shutil.ignore_patterns('rootfs.tar.gz'))
             metadata = json.loads((destination / 'bundle.json').read_text())
-            for name in ('INSTALL-TESTING.en.md', 'INSTALL-TESTING.zh-CN.md',
-                         'FINGERPRINT.en.md', 'FINGERPRINT.zh-CN.md'):
+            for name in ('INSTALL-TESTING.en.md', 'INSTALL-TESTING.md',
+                         'FINGERPRINT.en.md', 'FINGERPRINT.md'):
                 shutil.copyfile(project / 'docs' / name, destination / name)
                 metadata['files'][name] = hashlib.sha256((destination / name).read_bytes()).hexdigest()
             if args.device_tested:
@@ -227,11 +227,11 @@ def main():
                      'liuqin_layout.py': project / 'tools/lib/liuqin_layout.py',
                      'liuqin-rom-images.json': project / 'tools/lib/liuqin-rom-images.json',
                      'INSTALL-TESTING.en.md': project / 'docs/INSTALL-TESTING.en.md',
-                     'INSTALL-TESTING.zh-CN.md': project / 'docs/INSTALL-TESTING.zh-CN.md',
+                     'INSTALL-TESTING.md': project / 'docs/INSTALL-TESTING.md',
                      'NOTICE': project / 'NOTICE', 'LICENSE': project / 'LICENSE',
                      ksu_modules[0].name: ksu_modules[0], 'dualboot-tools.zip': dualboot_tools,
                      'FINGERPRINT.en.md': project / 'docs/FINGERPRINT.en.md',
-                     'FINGERPRINT.zh-CN.md': project / 'docs/FINGERPRINT.zh-CN.md',
+                     'FINGERPRINT.md': project / 'docs/FINGERPRINT.md',
                      'fingerprint-build-inputs.tar.gz': Path(supplied['FINGERPRINT_BUNDLE'])}
             if imported:
                 proof = out / 'kernel-build-proof.zip'

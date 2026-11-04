@@ -1,6 +1,6 @@
 # Ubuntu for Xiaomi Pad 6 Pro
 
-Run Ubuntu 26.04 on the Xiaomi Pad 6 Pro, with the GNOME desktop and a device-adapted kernel based on upstream Linux. [中文](README.zh-CN.md)
+Run Ubuntu 26.04 on the Xiaomi Pad 6 Pro, with the GNOME desktop and a device-adapted kernel based on upstream Linux. [中文](README.md)
 
 Official builds are published only in this repository's [Releases](https://github.com/yzddmr6/xiaomipad-6pro-mainline/releases), free of charge.
 
