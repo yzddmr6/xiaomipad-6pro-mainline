@@ -1,6 +1,6 @@
 [Unit]
 Description=LiUQIN MiPPS/PPS charger authentication
-Documentation=https://github.com/yzddmr6/xiaomipad-6pro-mainline/blob/main/docs/FASTCHARGE.md
+Documentation=https://github.com/yzddmr6/xiaomipad-6pro-mainline/blob/main/docs/FASTCHARGE.en.md
 ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/request_vdm_cmd
 
 [Service]

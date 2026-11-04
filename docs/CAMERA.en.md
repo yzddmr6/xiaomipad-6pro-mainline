@@ -1,5 +1,7 @@
 # Camera
 
+[中文](CAMERA.zh-CN.md)
+
 The Xiaomi Pad 6 Pro rear camera (Samsung S5KJN1, 50 MP) works as an
 experimental feature: preview, still photos and video recording run in the
 distribution Camera application (GNOME Snapshot). Image processing runs on the

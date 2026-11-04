@@ -1,6 +1,6 @@
 # 构建指南
 
-[English](BUILD.md) ｜ [项目首页](../README.zh-CN.md)
+[English](BUILD.en.md) ｜ [项目首页](../README.zh-CN.md)
 
 ## 内核
 

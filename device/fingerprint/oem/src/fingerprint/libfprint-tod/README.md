@@ -1,6 +1,6 @@
 # FPC1264 OEM TOD and final acceptance
 
-The public [user guide](../../../../../../docs/FINGERPRINT.md) records support and
+The public [user guide](../../../../../../docs/FINGERPRINT.en.md) records support and
 acceptance scope. The installed candidate is identified by its CANDIDATE.json
 and SHA256.json, not by a host-local development path. The private installed
 bundle is /usr/local/lib/liuqin-fpc-oem; /run staging and earlier milestones do

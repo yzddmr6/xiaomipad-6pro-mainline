@@ -1,10 +1,10 @@
 # Installation
 
-[中文](FLASHING.zh-CN.md) | [Project overview](../README.md)
+[中文](FLASHING.zh-CN.md) | [Project overview](../README.en.md)
 
 ## Availability
 
-Download all files from the same release and follow the [installation steps](INSTALL-TESTING.md).
+Download all files from the same release and follow the [installation steps](INSTALL-TESTING.en.md).
 The system archive may be split into several files; the guide includes the joining command.
 
 ## Supported Device
@@ -66,7 +66,7 @@ does not load. Ubuntu offers a **Reboot to Android** entry, and Android offers
 a **Reboot to Ubuntu** button through a KernelSU module.
 
 Switching in either direction has not yet been validated on hardware. See
-[Switching Between the Systems](INSTALL-TESTING.md#switching-between-the-systems)
+[Switching Between the Systems](INSTALL-TESTING.en.md#switching-between-the-systems)
 for the commands, the safety rules and the repair procedure.
 
 ## Release Bundle

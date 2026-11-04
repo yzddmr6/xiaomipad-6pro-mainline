@@ -1,6 +1,6 @@
 # Waydroid 支持
 
-[English](WAYDROID.md) ｜ [项目首页](../README.zh-CN.md)
+[English](WAYDROID.en.md) ｜ [项目首页](../README.zh-CN.md)
 
 本项目的设备内核已包含运行 Waydroid 所需的配置。Waydroid 用宿主 Linux
 内核承载一个 Android 用户空间容器，因此需要 Binder IPC、binderfs 以及

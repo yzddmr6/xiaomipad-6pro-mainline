@@ -4,7 +4,7 @@ This directory is the internal source layout of the optional
 [OEM component](../../README.md). Build and package commands are run from the
 component root device/fingerprint/oem, unless using the repository wrapper.
 Device status, user steps and acceptance limits are documented in the
-[user guide](../../../../../docs/FINGERPRINT.md). A fresh candidate's
+[user guide](../../../../../docs/FINGERPRINT.en.md). A fresh candidate's
 actual_biometric_acceptance: pending does not inherit the earlier desktop-r3
 physical result.
 

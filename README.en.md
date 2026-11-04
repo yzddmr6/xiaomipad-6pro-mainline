@@ -31,8 +31,8 @@ This project is only for the **Xiaomi Pad 6 Pro (liuqin, SM8475)**. Other Xiaomi
 - **Data loss**: unlocking the bootloader and performing an initial installation erase user data. Back up your files first.
 - **Storage and layout**: installation has been tested on one known **256 GB partition layout**, not every 256 GB device. Other capacities and modified partition layouts are unverified and unsupported. The installer repartitions the tail of the disk. In the dual-boot layout both systems boot from slot A; the Linux-only layout places Ubuntu in slot B. Do not bypass the checks.
 - **Validation scope**: installation and initial setup, rotation, touch, the magnetic keyboard (including its touchpad), speakers, single-microphone recording, USB OTG host mode (wired mouse), native fingerprint login and DP output have device-test evidence. See the table below for each feature's scope; not every combination is retested with every release. Android recovery still requires separate device validation.
-- **Installation layout**: the installer offers a Linux-only layout and a dual-boot layout that keeps stock Android. Both systems use slot A and switching writes the other system's image into `boot_a`. The known 256 GB unit has passed slot-A Ubuntu startup, Android's first boot after restoring stock firmware, and a return to Ubuntu through the KernelSU module script under a debug Android boot. The Manager WebUI button, automatic KernelSU activation under an ordinary Android boot, and the Linux-only layout remain unverified. See the [installation steps](docs/INSTALL-TESTING.md).
-- **Recovery preparation**: obtain the matching stock firmware and read the [data and recovery instructions](docs/FLASHING.md#data-and-recovery) before installing.
+- **Installation layout**: the installer offers a Linux-only layout and a dual-boot layout that keeps stock Android. Both systems use slot A and switching writes the other system's image into `boot_a`. The known 256 GB unit has passed slot-A Ubuntu startup, Android's first boot after restoring stock firmware, and a return to Ubuntu through the KernelSU module script under a debug Android boot. The Manager WebUI button, automatic KernelSU activation under an ordinary Android boot, and the Linux-only layout remain unverified. See the [installation steps](docs/INSTALL-TESTING.en.md).
+- **Recovery preparation**: obtain the matching stock firmware and read the [data and recovery instructions](docs/FLASHING.en.md#data-and-recovery) before installing.
 - **Hardware limitations**: some features are incomplete. Review the hardware support table below.
 
 Flashing an incorrect boot image or partition can prevent the tablet from starting. Follow the installation guide and keep your backups.
@@ -44,9 +44,9 @@ Use a complete installation bundle from [GitHub Releases](https://github.com/yzd
 
 | I want to | Read |
 |---|---|
-| Install Ubuntu | [Installation guide](docs/FLASHING.md) |
-| Build the kernel and device components | [Build guide](docs/BUILD.md) |
-| Restore Android | [Data and recovery instructions](docs/FLASHING.md#data-and-recovery) |
+| Install Ubuntu | [Installation guide](docs/FLASHING.en.md) |
+| Build the kernel and device components | [Build guide](docs/BUILD.en.md) |
+| Restore Android | [Data and recovery instructions](docs/FLASHING.en.md#data-and-recovery) |
 
 Prebuilt installation bundles include matching boot and root filesystem images, installation tools and checksums.
 
@@ -76,7 +76,7 @@ Verified features at a glance; see the table below for the scope of each:
 | Manual brightness | Kinetic KTZ8866 backlight | ✅ Working | Backlight and manual brightness adjustment |
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Driver selects the firmware by panel module; touch input, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys, touchpad, reattachment; suspend recovery not fully covered |
-| Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; currently limited to the first account (UID 1000) and one finger, see [fingerprint guide](docs/FINGERPRINT.md) |
+| Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Native Settings enrollment, same-finger acceptance/other-finger rejection, lock-screen unlock and fingerprint login after ordinary reboot; currently limited to the first account (UID 1000) and one finger, see [fingerprint guide](docs/FINGERPRINT.en.md) |
 | Stylus | NVTCapacitivePen input interface | 🧪 Unverified | Coordinates, pressure, buttons and input after wake not tested |
 | Hall switches | GPIO / SW_LID / SW_TABLET_MODE | 🟡 Partial | Switch states are readable; cover-close and open-to-wake policies not fully validated |
 
@@ -104,7 +104,7 @@ Verified features at a glance; see the table below for the scope of each:
 | Other decoding formats | Iris / V4L2 | 🧪 Unverified | HEVC, VP9 and other formats not individually validated |
 | Browser hardware decoding | Browser / V4L2 integration | 🧪 Unverified | Video playback alone does not prove hardware decoding |
 | Hardware encoding | Qualcomm video engine | 🧪 Unverified | Hardware encoding workflows not tested |
-| Rear camera | S5KJN1 / Qualcomm CAMSS / libcamera software ISP | 🟡 Partial | Preview, photos and video in the Camera app; software image processing, no autofocus, video stutters. See [Camera](docs/CAMERA.md) |
+| Rear camera | S5KJN1 / Qualcomm CAMSS / libcamera software ISP | 🟡 Partial | Preview, photos and video in the Camera app; software image processing, no autofocus, video stutters. See [Camera](docs/CAMERA.en.md) |
 | Front camera | Camera sensor / CAMSS | ❌ Unsupported | Not enabled or validated |
 | Accelerometer / auto-rotation | SLPI / SSC / iio-sensor-proxy | ✅ Working | First boot, login screen, desktop rotation and magnetic-keyboard landscape use |
 | Gyroscope / magnetometer | SSC sensor path | 🧪 Unverified | Application-usable measurements not confirmed by accelerometer support |
@@ -128,9 +128,9 @@ Verified features at a glance; see the table below for the scope of each:
 Ubuntu packages are managed through APT. Update instructions for the project kernel and device components will accompany each installation release.
 Do not mix boot images and system components from different releases.
 
-To run Android applications inside Ubuntu, Waydroid is supported; the required kernel configuration is built in. See [Waydroid support](docs/WAYDROID.md).
+To run Android applications inside Ubuntu, Waydroid is supported; the required kernel configuration is built in. See [Waydroid support](docs/WAYDROID.en.md).
 
-Charging power is negotiated through the vendor charger authentication path. See [Fast charging](docs/FASTCHARGE.md).
+Charging power is negotiated through the vendor charger authentication path. See [Fast charging](docs/FASTCHARGE.en.md).
 
 Report problems through GitHub Issues with the device model, system version, reproduction steps and relevant logs.
 Remove passwords, network credentials and personal information before sharing logs.

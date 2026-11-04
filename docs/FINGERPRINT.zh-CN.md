@@ -1,6 +1,6 @@
 # 小米平板 6 Pro 指纹使用说明
 
-[English](FINGERPRINT.md)
+[English](FINGERPRINT.en.md)
 
 ## 当前状态
 

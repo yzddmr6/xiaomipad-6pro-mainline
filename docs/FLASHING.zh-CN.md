@@ -1,6 +1,6 @@
 # 安装指南
 
-[English](FLASHING.md) ｜ [项目首页](../README.zh-CN.md)
+[English](FLASHING.en.md) ｜ [项目首页](../README.zh-CN.md)
 
 ## 安装包
 

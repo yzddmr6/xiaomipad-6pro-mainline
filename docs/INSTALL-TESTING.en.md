@@ -1,8 +1,10 @@
 # Installation Steps
 
+[中文](INSTALL-TESTING.zh-CN.md)
+
 Initial installation and first boot have been tested on a 256 GB unit. The
 128 GB and 512 GB variants are admitted by the rules in the
-[installation guide](FLASHING.md) but have not been tested on real hardware.
+[installation guide](FLASHING.en.md) but have not been tested on real hardware.
 This remains an experimental device port. Keep the tablet attended and prepare a recovery plan.
 
 An earlier revision of the dual-boot layout has been installed on a 256 GB

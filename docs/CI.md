@@ -71,7 +71,7 @@ The release export stage splits the desktop archive into parts below that limit
 without rebuilding the images. Upload every file in `out/image/release-assets/`.
 Users join the parts as described in the bundled installation instructions;
 the installer verifies the joined archive before installation. See
-[Release assets](BUILD.md#release-assets) for the export command.
+[Release assets](BUILD.en.md#release-assets) for the export command.
 
 Required board firmware is included in the assembled system and boot images.
 A matching firmware package may also be attached for builders, without another

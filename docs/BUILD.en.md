@@ -1,6 +1,6 @@
 # Building
 
-[中文](BUILD.zh-CN.md) | [Project overview](../README.md)
+[中文](BUILD.zh-CN.md) | [Project overview](../README.en.md)
 
 ## Kernel
 
@@ -190,7 +190,7 @@ local build. Its artifacts are kernel build outputs, not installable Ubuntu
 releases. Kernel-repository development builds share the same action.
 `tools/build-liuqin-image.py` assembles matching system artifacts with resumable
 stages. The image workflow requires a configured dedicated runner; see
-[CI setup](CI.md). Follow the [installation steps](INSTALL-TESTING.md) for device
+[CI setup](CI.md). Follow the [installation steps](INSTALL-TESTING.en.md) for device
 testing. A CI build alone does not validate a new installation bundle.
 
 ## Release Assets

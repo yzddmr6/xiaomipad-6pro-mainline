@@ -1,6 +1,6 @@
 # 安装步骤
 
-[English](INSTALL-TESTING.md)
+[English](INSTALL-TESTING.en.md)
 
 首次安装和首次启动已在 256 GB 机型完成真机验证；128 GB 与 512 GB 变体按
 [安装指南](FLASHING.zh-CN.md)的规则放行但未逐一真机验证。本项目仍属于实验性设备移植，

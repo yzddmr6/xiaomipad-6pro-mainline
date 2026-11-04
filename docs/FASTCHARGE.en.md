@@ -1,5 +1,7 @@
 # Fast charging
 
+[中文](FASTCHARGE.zh-CN.md)
+
 The Xiaomi Pad 6 Pro negotiates its charging power through the ADSP charger
 firmware. The firmware opens the high-voltage charge path only after the adapter
 has passed Xiaomi's private authentication, which the stock system performs from

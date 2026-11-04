@@ -1,6 +1,6 @@
 # Waydroid Support
 
-[中文](WAYDROID.zh-CN.md) | [Project overview](../README.md)
+[中文](WAYDROID.zh-CN.md) | [Project overview](../README.en.md)
 
 The device kernel in this project already carries what Waydroid needs.
 Waydroid runs an Android userspace container on the host Linux kernel, so it

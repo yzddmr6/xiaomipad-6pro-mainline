@@ -20,6 +20,6 @@ Native target compilation and real system-bus discovery/Claim/Release passed.
 The recorded desktop-r3 boot has a real OEM print and passed same-finger,
 reload and other-finger acceptance; the user also reported GNOME unlock.
 Position sensitivity, stutter and unobserved retry/cold-start cases remain
-documented in the [user guide](../../../../../../docs/FINGERPRINT.md).
+documented in the [user guide](../../../../../../docs/FINGERPRINT.en.md).
 `prepare.py --patch-output PATH` writes the generated patch into the build
 output; running a build leaves the canonical source patch untouched.

@@ -109,7 +109,7 @@ apt-get -c /tmp/liuqin-apt.conf update >/dev/null
 # dependencies of liuqin-device-support: removing Snapshot or a codec must
 # never take the device units with it.  ugly/libav carry the H.264 encoder
 # and decoder that Snapshot recording and in-app playback use; libcamera-tools
-# (cam) and v4l-utils (media-ctl, v4l2-ctl) are the checks docs/CAMERA.md
+# (cam) and v4l-utils (media-ctl, v4l2-ctl) are the checks docs/CAMERA.en.md
 # tells users to run.
 apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libprotobuf-c1 \
 	gnome-snapshot libcamera-ipa gstreamer1.0-libcamera gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \

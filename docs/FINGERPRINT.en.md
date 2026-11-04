@@ -1,6 +1,6 @@
 # Xiaomi Pad 6 Pro fingerprint support
 
-[简体中文](FINGERPRINT.zh-CN.md)
+[中文](FINGERPRINT.zh-CN.md)
 
 ## Current status
 
