@@ -1,11 +1,15 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: MIT
-"""Late load the exact stable FPC module. Never rebind GENI or write boot."""
-import hashlib
+"""Late load the FPC control module of the running kernel. Never rebind GENI or write boot."""
 import json
 from pathlib import Path
 import os
 import subprocess
+
+# Built in-tree (CONFIG_SENSORS_FPC1020_SPI=m) and shipped by the liuqin-kernel
+# package, so it always matches the running kernel. A copy carried by this
+# package would only load on the one kernel it was built for.
+MODULE = "fpc1264_spi_diag"
 
 
 def readiness_services(candidate):
@@ -32,8 +36,8 @@ def load():
         raise RuntimeError("root required")
     here = Path(__file__).resolve().parent
     candidate = json.loads((here / "CANDIDATE.json").read_text())
-    if not Path("/dev/tee0").exists() or os.uname().release != candidate["kernel_release"]:
-        raise RuntimeError("Start the stable FPC support boot using the host boot entry")
+    if not Path("/dev/tee0").exists():
+        raise RuntimeError("The QSEECOM TEE device is unavailable")
     node = Path("/sys/bus/spi/devices/spi1.0/of_node")
     if not node.exists() or b"fpc,fpc1020" not in (node / "compatible").read_bytes():
         raise RuntimeError("Stable fingerprint device tree is unavailable")
@@ -45,14 +49,14 @@ def load():
     for service in readiness_services(candidate):
         if subprocess.run(["systemctl", "is-active", "--quiet", service]).returncode:
             raise RuntimeError("Fingerprint startup dependency is not ready: " + service)
-    module = here / "kernel/fpc1264_spi_diag.ko"
-    if hashlib.sha256(module.read_bytes()).hexdigest() != candidate["kernel_module_sha256"]:
-        raise RuntimeError("Stable FPC module hash mismatch")
     if candidate.get("firmware_source") == "modem_a-read-only":
         from provision_firmware import provision
         provision(here / "firmware")
     if not Path("/dev/fpc1020").exists():
-        subprocess.run(["insmod", str(module)], check=True)
+        # An explicit modprobe is not affected by the modprobe.d blacklist that
+        # keeps udev from loading the module before the desktop is up.
+        if subprocess.run(["modprobe", MODULE]).returncode:
+            raise RuntimeError("The running kernel does not provide " + MODULE)
         subprocess.run(["udevadm", "settle", "--timeout=5"], check=True)
     if not Path("/dev/fpc1020").exists():
         raise RuntimeError("FPC module did not create the device")

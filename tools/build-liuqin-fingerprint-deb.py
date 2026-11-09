@@ -29,7 +29,10 @@ VERIFIED_COMPONENTS = {
     "tod/libfprint-tod-fpc1264-oem.so": "e128383ae639890f6020ca41e3dbcf5ba23e781de432c22edf26f9e00805a0dd",
     "kernel/fpc1264_spi_diag.ko": "f2580d173c9b54dc8f55357b98fb5833d1be3ef4e8d9f9eda00c2176d2fd0db8",
 }
-KERNEL_RELEASE = "6.17.0-rc1-gfe81794b5e1b"
+# Kernel the bundle was validated on. Its module copy is checked for bundle
+# integrity only and is not installed: the loader uses the fpc1264_spi_diag
+# module of the running liuqin-kernel package, so kernel updates keep working.
+BUNDLE_KERNEL_RELEASE = "6.17.0-rc1-gfe81794b5e1b"
 RUNTIME_PATH = "usr/local/lib/liuqin-fpc-oem"
 FIRMWARE_NAMES = {"fpcliu.mdt", *(f"fpcliu.b{i:02d}" for i in range(9))}
 BINARIES = {"fprintd", "fpc_build_info", "qsee-gatekeeper", "qsee-supplicant",
@@ -66,7 +69,7 @@ def read_bundle(bundle, destination):
 
 def prepare_payload(payload, version):
     info = json.loads((payload / "CANDIDATE.json").read_text())
-    if (info["kernel_release"] != KERNEL_RELEASE or
+    if (info["kernel_release"] != BUNDLE_KERNEL_RELEASE or
             info["enrollment_interface"] != "fprintd" or info["deployment_mode"] != "installed"):
         raise ValueError("release requires the verified FE kernel/native userspace")
     if any(sha(payload / name) != digest for name, digest in VERIFIED_COMPONENTS.items()):
@@ -76,8 +79,9 @@ def prepare_payload(payload, version):
         raise ValueError("module hash mismatch")
     modinfo = shutil.which("modinfo") or "/usr/sbin/modinfo"
     vermagic = subprocess.check_output([modinfo, "-F", "vermagic", str(module)], text=True)
-    if vermagic.split()[0] != KERNEL_RELEASE:
-        raise ValueError("module ABI differs from release kernel")
+    if vermagic.split()[0] != BUNDLE_KERNEL_RELEASE:
+        raise ValueError("module ABI differs from the validated bundle kernel")
+    shutil.rmtree(payload / "kernel")
     expected = json.loads((OEM / "firmware/SHA256.json").read_text())
     actual = json.loads((payload / "firmware/SHA256.json").read_text())
     if actual != expected or set(expected) != FIRMWARE_NAMES:
@@ -103,12 +107,14 @@ def prepare_payload(payload, version):
     # Whitelist release metadata: never carry the developer account or its
     # previous test boot/recovery identities into a fresh-user installation.
     candidate = {key: info[key] for key in (
-        "schema", "id", "kernel_release", "base_kernel", "kernel_source_diff_sha256",
+        "schema", "id", "base_kernel", "kernel_source_diff_sha256",
         "target_libfprint_package", "build_kind", "deployment_mode", "enrollment_interface",
         "native_user_setup", "credential_creation", "program_path",
-        "supports_one_finger_per_user", "partition_writes", "kernel_module_sha256")}
+        "supports_one_finger_per_user", "partition_writes")}
     candidate.update(account_profile="primary-uid-1000", linux_uid=1000,
                      native_uid=0x60000000 | 1000, firmware_source="modem_a-read-only",
+                     validated_kernel_release=info["kernel_release"],
+                     kernel_module="fpc1264_spi_diag from the running liuqin-kernel package",
                      release_version=version, binary_bundle_sha256=BUNDLE_SHA256,
                      binary_revision=info["revision"])
     (payload / "CANDIDATE.json").write_text(json.dumps(candidate, indent=2) + "\n")
