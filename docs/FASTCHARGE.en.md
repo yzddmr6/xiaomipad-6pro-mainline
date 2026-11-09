@@ -44,8 +44,7 @@ the same handshake with `adapter_id 0000a819`, so the path is not limited to
 first-party adapters. No low-state-of-charge power measurement was taken with
 that charger.
 
-The standard PPS switch is integrated but still awaits validation with a PPS
-adapter that is not Xiaomi-branded.
+The standard PPS switch is off by default; see "Standard PPS adapters" below to enable it.
 
 ## Components
 
@@ -124,7 +123,7 @@ way as a Xiaomi adapter.
 
 The daemon waits for the negotiated contract before reading SVID and data role.
 It checks the Type-C partner throughout the handshake, so detach or replacement
-cannot reuse a previous verdict. Hardware testing must still cover rapid replug.
+cannot reuse a previous verdict.
 
 ## Standard PPS adapters
 
