@@ -18,6 +18,10 @@ with tempfile.TemporaryDirectory() as directory:
  converter.write_text(source);converter.chmod(0o755)
  (root/'bin/dpkg-reconfigure').write_text('#!/bin/sh\necho called >>"$CALLS"\n')
  (root/'bin/dpkg-reconfigure').chmod(0o755)
+ (root/'bin/debconf-communicate').write_text('#!/bin/sh\ncat >"$DEBCONF_INPUT"\nprintf "0 value set\\n0 value set\\n"\n')
+ (root/'bin/setupcon').write_text('#!/bin/sh\necho "$*" >"$SETUPCON_ARGS"\n')
+ for name in ('debconf-communicate','setupcon'): (root/'bin'/name).chmod(0o755)
+
  if len(sys.argv)>1:
   writer=Path(sys.argv[1]).read_text().replace('KBD_FILE="/etc/default/keyboard"',f'KBD_FILE="{keyboard}"')
  else:
@@ -27,7 +31,7 @@ printf 'XKBLAYOUT="%s"\\nXKBVARIANT="%s"\\nXKBOPTIONS="%s"\\n' "$1" "$2" "${3:-}
 dpkg-reconfigure keyboard-configuration
 '''
  writer=writer.replace('#!/bin/sh','#!'+shutil.which('busybox')+' sh',1)
- env=dict(os.environ,PATH=str(root/'bin')+':'+os.environ['PATH'],CALLS=str(root/'calls'),KEYBOARD=str(keyboard))
+ env=dict(os.environ,PATH=str(root/'bin')+':'+os.environ['PATH'],CALLS=str(root/'calls'),KEYBOARD=str(keyboard),DEBCONF_INPUT=str(root/'debconf'),SETUPCON_ARGS=str(root/'setupcon'))
  for name in ('gnome-initial-setup','gnome-control-center'):
   path=root/f'usr/libexec/{name}-set-debian-keyboard'
   path.write_text((overlay/f'usr/libexec/{name}-set-debian-keyboard').read_text().replace('/usr/local/libexec/liuqin-keyboard-layout',str(converter)))
@@ -45,7 +49,10 @@ dpkg-reconfigure keyboard-configuration
   assert 'XKBLAYOUT="fr"' in keyboard.read_text() and 'XKBVARIANT="oss"' in keyboard.read_text()
   before=keyboard.read_bytes();run(name,'nonexistent','',ok=False);assert keyboard.read_bytes()==before
  keyboard.write_text('XKBLAYOUT="default,fr,us"\nXKBVARIANT=",oss,dvorak"\nXKBOPTIONS="grp:alt_shift_toggle"\n')
+ calls_before=(root/'calls').read_text()
  run('migrate');assert 'XKBLAYOUT="fr,us"' in keyboard.read_text() and 'XKBVARIANT="oss,dvorak"' in keyboard.read_text()
+ assert (root/'calls').read_text()==calls_before
+ assert 'layoutcode fr,us' in (root/'debconf').read_text() and (root/'setupcon').read_text().strip()=='--save-only'
  saved=keyboard.stat().st_mtime_ns;run('migrate');assert keyboard.stat().st_mtime_ns==saved
  assert not (root/'tmp').exists()
  # Exercise systemd's actual condition evaluator for both capability states.

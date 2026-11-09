@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 import shlex
 import sys
+import subprocess
+import tempfile
 
 KEYBOARD = Path('/etc/default/keyboard')
 SYMBOLS = Path('/usr/share/X11/xkb/symbols')
@@ -53,8 +55,41 @@ def main(argv):
         if 'default' not in saved.get('XKBLAYOUT', '').split(','):
             return 0
         layouts, variants = normalize(saved.get('XKBLAYOUT', ''), saved.get('XKBVARIANT', ''))
-        args = [layouts, variants, saved.get('XKBOPTIONS', '')]
-        writer = WRITERS[0]
+        # A maintainer script must not run dpkg-reconfigure under dpkg's own
+        # frontend lock. Update the file atomically, then synchronize debconf
+        # and the console cache directly; ordinary GUI changes still use the
+        # diverted distribution writer below.
+        metadata = KEYBOARD.stat()
+        text = KEYBOARD.read_text()
+        for key, value in (('XKBLAYOUT', layouts), ('XKBVARIANT', variants)):
+            line = f'{key}="{value}"'
+            if re.search(r'^' + key + '=', text, re.M):
+                text = re.sub(r'^' + key + r'=.*$', line, text, flags=re.M)
+            else:
+                text = text.rstrip() + '\n' + line + '\n'
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', dir=KEYBOARD.parent,
+                                             prefix='.liuqin-keyboard-', delete=False) as stream:
+                temporary = stream.name
+                os.fchmod(stream.fileno(), metadata.st_mode & 0o777)
+                os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, KEYBOARD)
+            temporary = None
+        finally:
+            if temporary:
+                os.unlink(temporary)
+        result = subprocess.run(['debconf-communicate', 'keyboard-configuration'],
+                                input=f'SET keyboard-configuration/layoutcode {layouts}\n'
+                                      f'SET keyboard-configuration/variantcode {variants}\n',
+                                text=True, capture_output=True, check=True)
+        if any(not line.startswith('0 ') for line in result.stdout.splitlines()):
+            raise ValueError('keyboard debconf synchronization failed: ' + result.stdout)
+        subprocess.run(['setupcon', '--save-only'], check=True)
+        return 0
     else:
         if len(argv) not in (3, 4) or argv[0] not in WRITERS:
             raise ValueError('expected a known keyboard writer, layouts, variants and optional options')
@@ -70,5 +105,5 @@ def main(argv):
 if __name__ == '__main__':
     try:
         sys.exit(main(sys.argv[1:]))
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
         sys.exit(str(error))
