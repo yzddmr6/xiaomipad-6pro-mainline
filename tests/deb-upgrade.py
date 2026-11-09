@@ -55,6 +55,10 @@ try:
        'test -x /usr/libexec/gnome-control-center-set-debian-keyboard.liuqin-orig\n')
  assert 'XKBLAYOUT="us"' in (root/'etc/default/keyboard').read_text()
  assert 'XKBVARIANT="dvorak"' in (root/'etc/default/keyboard').read_text()
+ extension=root/'usr/share/gnome-shell/extensions/liuqin-osk-guard@io.github.liuqin'
+ assert json.loads((extension/'metadata.json').read_text())['shell-version'] == ['50']
+ # dpkg's real glib schema trigger must make the shipped default effective.
+ guest("GSETTINGS_BACKEND=memory gsettings get org.gnome.shell enabled-extensions | grep -F liuqin-osk-guard@io.github.liuqin\n")
  guest('/usr/bin/gnome-control-center --version\n')
  guest('systemd-analyze verify liuqin-physical-platform.service liuqin-mipps-auth.service liuqin-mipps-battery-auth.service\n')
  print('PASS: actual ARM64 dpkg upgrade, default MiPPS policy, units, keyboard migration and diverted writers',flush=True)

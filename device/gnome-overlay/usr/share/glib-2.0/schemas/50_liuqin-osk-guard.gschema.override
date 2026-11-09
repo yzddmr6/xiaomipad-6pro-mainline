@@ -1,0 +1,4 @@
+# Enable in user, unlock, GDM and initial-setup sessions. Shell 50 only.
+# Remove with the extension when Ubuntu GNOME Shell includes the upstream fix.
+[org.gnome.shell]
+enabled-extensions=['liuqin-osk-guard@io.github.liuqin']
