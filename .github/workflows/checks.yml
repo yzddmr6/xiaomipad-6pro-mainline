@@ -66,3 +66,7 @@ jobs:
         run: |
           sudo apt-get install --no-install-recommends -y openssh-server
           sudo python3 tests/devmode.py
+      - name: Offline time floor
+        run: |
+          sudo apt-get install --no-install-recommends -y fake-hwclock
+          python3 tests/clock-floor.py

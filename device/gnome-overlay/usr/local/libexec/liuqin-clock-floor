@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# fake-hwclock 0.14's default load can also move time backwards. Only invoke
+# the distro implementation when its saved value is ahead of the system clock.
+set -eu
+[ -r /etc/fake-hwclock.data ] || exit 0
+saved=$(date -u -d "$(cat /etc/fake-hwclock.data)" +%s)
+now=$(date -u +%s)
+[ "$now" -lt "$saved" ] || exit 0
+exec /usr/sbin/fake-hwclock load

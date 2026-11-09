@@ -113,9 +113,12 @@ apt-get -c /tmp/liuqin-apt.conf update >/dev/null
 # tells users to run.
 apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libprotobuf-c1 \
 	gnome-snapshot libcamera-ipa gstreamer1.0-libcamera gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-	libcamera-tools v4l-utils openssh-server >/dev/null
+	libcamera-tools v4l-utils openssh-server fake-hwclock >/dev/null
 # Only the explicit USB developer-mode socket should listen in a fresh image.
 systemctl disable ssh.service ssh.socket
+# The distro unit loads/saves the lower bound, including clean shutdowns.
+systemctl enable fake-hwclock-load.service fake-hwclock-save.service fake-hwclock-save.timer
+fake-hwclock save
 dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	/tmp/liuqin-debs/liuqin-device-support_*_arm64.deb \
 	/tmp/liuqin-debs/liuqin-sensors_*_arm64.deb \
