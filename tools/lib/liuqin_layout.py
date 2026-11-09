@@ -48,12 +48,6 @@ HOME_LABEL = 'LIUQIN_HOME'
 METADATA_NAME = 'metadata'
 LINUX_TYPECODE = '8300'
 
-# Partition numbers for the two new entries.  The stock table holds 64 entries
-# and uses 35, so these are always free; addressing them by a fixed number
-# keeps the plan reproducible whether or not userdata is deleted.
-ROOT_NUMBER = 36
-HOME_NUMBER = 37
-
 MIN_ANDROID = 16 * GIB
 MIN_ROOT = 16 * GIB
 MIN_HOME = 8 * GIB
