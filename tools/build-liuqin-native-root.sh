@@ -42,6 +42,10 @@ die() { printf 'build-liuqin-native-root: %s\n' "$*" >&2; exit 1; }
 say() { printf 'build-liuqin-native-root: %s\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || die 'run as root (tree copy, chroot and ownership preservation need it)'
+# The arm64 chroot runs under qemu-user. The default pointer-authentication
+# emulation makes it several times slower; the implementation-defined
+# algorithm keeps the CPU features the guest sees and only speeds it up.
+export QEMU_CPU=max,pauth-impdef=on
 [ -x "$desktop_root/usr/lib/systemd/systemd" ] || die "not an Ubuntu root: $desktop_root"
 [ -f "$desktop_manifest" ] || die "desktop tree manifest is unavailable: $desktop_manifest"
 [ "$(sha256sum "$desktop_manifest" | cut -d' ' -f1)" = "$desktop_manifest_sha256" ] ||

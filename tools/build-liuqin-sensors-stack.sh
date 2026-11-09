@@ -44,6 +44,10 @@ die() { printf 'build-liuqin-sensors-stack: %s\n' "$*" >&2; exit 1; }
 say() { printf 'build-liuqin-sensors-stack: %s\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || die 'run as root (an overlay mount and arm64 chroot are required)'
+# The arm64 chroot runs under qemu-user. The default pointer-authentication
+# emulation makes it several times slower; the implementation-defined
+# algorithm keeps the CPU features the guest sees and only speeds it up.
+export QEMU_CPU=max,pauth-impdef=on
 [ -x "$rootfs/usr/lib/systemd/systemd" ] || die "not an Ubuntu root: $rootfs"
 [ -r "$source_manifest" ] || die "missing source manifest: $source_manifest"
 [ -r "$ssc_accel_test_runner" ] || die "missing SSC accelerometer test runner: $ssc_accel_test_runner"
