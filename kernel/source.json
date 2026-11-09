@@ -3,8 +3,8 @@
   "branch": "liuqin-6.17",
   "upstream_url": "https://github.com/sm8450-mainline/linux.git",
   "upstream_base": "a19585977c11fa662435b607cb9ff4ac7133092e",
-  "commit": "fe81794b5e1b8a3f11a165f3acbfdb8fa671dbb3",
-  "config_sha256": "29a4fd23019bd1179770485b9507b418b357f141ac9e0f949f120fdc4ea4639f",
+  "commit": "5bbdbea6a3074034c66189cc3fa4c162e2517424",
+  "config_sha256": "b0b0753d307231a8abd59953b614b4e6f399609be86cce3d404f1adbcefc7dc3",
   "config_fragments": [
     "device/configs/liuqin-firstboot.config",
     "device/configs/liuqin-snap.config",
@@ -15,7 +15,8 @@
     "device/configs/liuqin-trim.config",
     "device/configs/liuqin-waydroid.config",
     "device/configs/liuqin-camera.config",
-    "device/configs/liuqin-fingerprint.config"
+    "device/configs/liuqin-fingerprint.config",
+    "device/configs/liuqin-diagnostics.config"
   ],
   "dtb": "qcom/sm8475-xiaomi-liuqin.dtb"
 }
