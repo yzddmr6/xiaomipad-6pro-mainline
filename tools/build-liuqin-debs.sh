@@ -291,8 +291,12 @@ PY
 		chmod 0644 "$root/usr/share/liuqin/power/gschemas.compiled"
 	fi
 	mkdir -p "$root/DEBIAN"
-	write_divert_preinst "$pkg" /usr/bin/gnome-control-center
-	write_divert_postrm "$pkg" /usr/bin/gnome-control-center
+	write_divert_preinst "$pkg" /usr/bin/gnome-control-center \
+		/usr/libexec/gnome-initial-setup-set-debian-keyboard \
+		/usr/libexec/gnome-control-center-set-debian-keyboard
+	write_divert_postrm "$pkg" /usr/bin/gnome-control-center \
+		/usr/libexec/gnome-initial-setup-set-debian-keyboard \
+		/usr/libexec/gnome-control-center-set-debian-keyboard
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ]; then\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl daemon-reload || :; fi\n'
@@ -303,6 +307,7 @@ PY
 		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
 		printf '\trm -f /etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service /etc/systemd/system/liuqin-gnome-usb-rescue.service\n'
 		printf '\tsystemctl enable liuqin-physical-platform.service\n'
+		printf '\t/usr/local/libexec/liuqin-keyboard-layout --migrate\n'
 		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
 		printf '\tprintf "CHASSIS=tablet\\n" >>/etc/machine-info\n'
 		printf 'fi\n'

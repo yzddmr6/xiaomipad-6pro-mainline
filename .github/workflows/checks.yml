@@ -74,3 +74,5 @@ jobs:
         run: python3 tests/root-package-policy.py
       - name: Installer preflight
         run: sudo python3 tests/install-preflight.py
+      - name: Keyboard conversion and prompting capability
+        run: sudo python3 tests/keyboard-layout.py
