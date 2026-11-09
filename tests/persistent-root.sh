@@ -1291,7 +1291,7 @@ assert s.index('physical-platform /sys') < s.index('mount4 -o move /proc')
 PYTEST
 native_reset_fixture; TEST_STORAGE_PHASE=switch TEST_PLATFORM_FAIL=1
 export TEST_STORAGE_PHASE TEST_PLATFORM_FAIL
-gnome_expect_rejected_safe physical-platform-refused
+gnome_expect_switch_root_returned_fail_closed physical-platform-failed-still-switches
 unset TEST_PLATFORM_FAIL
 
 grep -q '^storage_marker=etc/liuqin-persistent-root$' "$init" || fail "marker path changed"

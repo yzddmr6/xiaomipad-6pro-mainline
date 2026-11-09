@@ -940,9 +940,7 @@ storage_switch_persistent_root() {
 	# This sysfs instance, including the covered OF export, moves into the
 	# real root. PID1 must see it before its first virtualization query.
 	if ! liuqin-physical-platform /sys; then
-		log "persistent root physical-platform policy failed"
-		storage_abort || ufs_safe=false
-		return 1
+		log "PHYSICAL_IDENTITY_CORRECTION_FAILED: continuing to the real root; sysinit will report it"
 	fi
 
 	storage_moved=

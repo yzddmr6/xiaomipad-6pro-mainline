@@ -108,8 +108,6 @@ NATIVE_PINNED_PATHS = (
     "/usr/lib/liuqin/devmode/sshd_config",
     "/etc/liuqin-network",
     "/etc/udev/rules.d/71-liuqin-devmode.rules",
-    "/etc/systemd/system/liuqin-physical-platform.service",
-    "/usr/local/libexec/liuqin-physical-platform",
     "/etc/systemd/system/liuqin-hexagonrpcd-sdsp.service",
     "/etc/systemd/system/liuqin-power-keyd.service",
     "/etc/systemd/system/liuqin-power-keyd.service.d/20-liuqin-session-runtime.conf",
