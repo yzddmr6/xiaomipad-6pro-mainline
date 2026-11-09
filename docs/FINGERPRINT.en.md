@@ -78,9 +78,10 @@ at the regular login screen without any manual Keymaster negotiation or setup
 helper. Fingerprint login does not decrypt the password-encrypted GNOME login
 keyring; applications accessing its secrets may still request the keyring password.
 
-Placement sensitivity, latency, suspend/resume, long-term reliability and
-multiple fingers/accounts and fingerprint secure-storage coexistence after an
-Android round trip are not established for this candidate.
+Multiple fingers and accounts are not supported yet. Placement sensitivity,
+latency, behaviour after suspend, long-term reliability and the coexistence of
+fingerprint secure storage with Android after switching systems are not
+characterised yet.
 
 ## Appendix: recovery and legacy diagnostics
 
