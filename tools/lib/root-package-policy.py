@@ -18,7 +18,7 @@ def packages():
 
 
 def removal_plan(status, simulation):
-    selected = sorted(p for p, state in status.items() if state != 'unknown ok not-installed' and obsolete(p))
+    selected = sorted(p for p, state in status.items() if not state.endswith('not-installed') and obsolete(p))
     removals = re.findall(r'^(?:Remv|Purg) (\S+)', simulation, re.M)
     unexpected = [p for p in removals if not obsolete(p.split(':')[0])]
     if unexpected or re.search(r'^(?:Inst|Conf) ', simulation, re.M):
