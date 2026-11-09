@@ -115,3 +115,5 @@ with tempfile.TemporaryDirectory() as directory:
     host.main(['--wait','0','root','true'],sys_net=net,run=route,execvp=lambda *a:called.append(a))
     assert called[0][0]=='ssh' and called[0][1][-2:]==['root@192.168.66.2','true']
 print('PASS: host identity, serial selection, route and SSH command')
+
+assert host.parse_args(['-i', '/keys/custom', 'root']).identity == Path('/keys/custom')

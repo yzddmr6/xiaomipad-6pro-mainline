@@ -71,6 +71,7 @@ def host_commands(interface, network):
 
 def parse_args(argv):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('-i', '--identity', type=Path, help='SSH private key matching the provisioned public key')
     ap.add_argument('--serial', help='androidboot serial number, when more than one liuqin is attached')
     ap.add_argument('--wait', type=float, default=20, metavar='SECONDS',
                     help='how long to wait for the link and the DHCP address (default 20, at most 300)')
@@ -130,8 +131,11 @@ def main(argv=None, sys_net=SYS_NET, run=subprocess.run, execvp=os.execvp, clock
     if args.check:
         print(f'{interface} {serial} {network["host_ip"]} -> {network["device_ip"]} ready')
         return 0
-    identity = Path.home() / '.ssh/liuqin-devmode'
-    ssh = ['ssh'] + (['-i', str(identity)] if identity.exists() else []) + (['-t'] if args.tty else []) + [f'{args.user}@{network["device_ip"]}'] + args.command
+    identity = args.identity
+    if identity is None:
+        default = Path.home() / '.ssh/id_ed25519'
+        identity = default if default.exists() else Path.home() / '.ssh/liuqin-devmode'
+    ssh = ['ssh'] + (['-i', str(identity)] if args.identity is not None or identity.exists() else []) + (['-t'] if args.tty else []) + [f'{args.user}@{network["device_ip"]}'] + args.command
     execvp('ssh', ssh)
     return 1
 
