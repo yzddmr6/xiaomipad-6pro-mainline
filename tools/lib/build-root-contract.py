@@ -199,6 +199,18 @@ PROJECT_OWNED_EXACT_PATHS = (
     "/usr/bin/ssccli",
     "/usr/share/qcom/sm8450/Xiaomi/liuqin/sensors/sns_reg_version",
     "/usr/lib/firmware/qcom/sm8450/Xiaomi-Pad-6-Pro-tplg.bin",
+    # Developer mode (liuqin-device-support). The units, network file and
+    # command use the packaged-file locations systemd and sshd expect; no
+    # distribution package ships these names. Pinned so that the key-only
+    # maintenance login always matches the boot image that admits the root.
+    "/usr/lib/systemd/system/liuqin-devmode.service",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh.socket",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh@.service",
+    "/usr/lib/systemd/network/50-liuqin-devmode.network",
+    "/usr/lib/liuqin/devmode/sshd_config",
+    "/usr/libexec/liuqin/devmode-gadget",
+    "/usr/sbin/liuqin-devmode",
+    "/etc/udev/rules.d/71-liuqin-devmode.rules",
 )
 
 
