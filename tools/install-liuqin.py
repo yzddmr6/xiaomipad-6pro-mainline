@@ -522,6 +522,8 @@ def main(argv=None):
             raise RuntimeError('Installer kernel does not match this bundle'
                                ' —— 安装器内核与包不匹配，请使用同一发布包内的全部文件')
         if restore is not None:
+            remote(shlex.join(['sh', '/usr/lib/liuqin/install-preflight.sh', boot_id,
+                               str(12 * layout.DEVICE_SECTOR_SIZE)]), 180)
             restore_partition_table(remote, device_layout, restore, args.serial)
             remote("(sleep 2; /usr/sbin/liuqin-reboot bootloader) >/dev/null 2>&1 &")
             print('Stock partition table restored. The tablet is returning to Fastboot.')
