@@ -3,7 +3,7 @@
 """Log in to a liuqin running developer mode over its USB NCM link.
 
 The host interface is found by the fixed host MAC of device/devmode-network.json
-and the USB device above it (Linux development IDs 1d6b:0104, serial
+and the USB device above it (Linux development IDs 1d6b:1041, serial
 liuqin-*), as for the debug channel.  The device hands the host its address by
 DHCP; if the host has not taken it, the ip commands that set it are printed.
 Then `ssh USER@DEVICE_IP [COMMAND...]` replaces this process.  Nothing else
