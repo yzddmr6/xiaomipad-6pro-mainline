@@ -171,7 +171,7 @@ until the attach token changes.
 | --- | --- |
 | Unit never runs | the `xiaomi` group is missing: the running kernel predates the interface |
 | `pd_verifed` stays 0 with a Xiaomi adapter | `journalctl -u liuqin-mipps-auth`: `adapter auth mismatch` means the handshake failed; `pdo2 reports no source PDO` means the adapter offered no PD contract |
-| `role_first=skipped_non_xiaomi` | the adapter does not report `adapter_svid 0x2717`, so the host role is left alone and MiPPS cannot engage. Use the standard PPS switch if it offers PPS |
+| `role_first=skipped_non_xiaomi` | the adapter does not report `adapter_svid 0x2717`, so the data role is left alone. Authentication is still probed; failure keeps the high-voltage gate closed by default |
 | `role_first=source_not_ready` | the adapter did not reach `SNK_Ready` with a PD contract within the timeout: plain 5 V, DCP, or a negotiation that is still running |
 | `role_first=no_host_no_adapter_commands` | the port refused the host role and no adapter command was sent. Replug; if it persists, check `/sys/class/typec/port0/data_role` |
 | `role_first=already_attempted_this_attach` | this attach already ran. Replug instead of restarting the unit |

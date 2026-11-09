@@ -137,7 +137,7 @@ cat /sys/class/power_supply/qcom-battmgr-bat/current_now
 | --- | --- |
 | 单元从不运行 | `xiaomi` 属性组不存在：运行中的内核早于该接口 |
 | 小米适配器下 `pd_verifed` 仍为 0 | 看 `journalctl -u liuqin-mipps-auth`：`adapter auth mismatch` 表示握手失败；`pdo2 reports no source PDO` 表示适配器未提供 PD 合同 |
-| `role_first=skipped_non_xiaomi` | 适配器未报告 `adapter_svid 0x2717`，因此不改动数据角色，MiPPS 无法生效。若其支持 PPS，可用标准 PPS 开关 |
+| `role_first=skipped_non_xiaomi` | 适配器未报告 `adapter_svid 0x2717`，因此不改动数据角色；仍会探测认证，失败时默认不开放高压通路 |
 | `role_first=source_not_ready` | 适配器未在超时内以 PD 合同进入 `SNK_Ready`：普通 5 V、DCP，或协商仍在进行 |
 | `role_first=no_host_no_adapter_commands` | 端口拒绝 host 角色，未发送任何适配器命令。请拔插；若持续出现，检查 `/sys/class/typec/port0/data_role` |
 | `role_first=already_attempted_this_attach` | 本次连接已运行过，请拔插而不是重启单元 |
