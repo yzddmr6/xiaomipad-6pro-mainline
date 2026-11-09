@@ -87,6 +87,10 @@ with tempfile.TemporaryDirectory() as directory:
         assert not (root/'shell-opened').exists()
     # Actual OpenSSH parses the shipped policy: no password or keyboard login.
     config=overlay/'usr/lib/liuqin/devmode/sshd_config'
+    # sshd refuses to start, even for -T, without its privilege separation
+    # directory; on the tablet liuqin-devmode-ssh@.service provides it through
+    # RuntimeDirectory=sshd, on a host without a running sshd it is absent.
+    subprocess.run(['sudo','-n','mkdir','-p','-m','0755','/run/sshd'],check=True)
     result=subprocess.check_output(['sudo','-n','/usr/sbin/sshd','-T','-f',str(config)],text=True)
     for line in ('passwordauthentication no','kbdinteractiveauthentication no','authenticationmethods publickey','allowusers root'):
         assert line in result
