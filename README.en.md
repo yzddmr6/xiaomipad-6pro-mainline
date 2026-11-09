@@ -49,7 +49,7 @@ At a glance; see the tables for the scope of each feature:
 - ✅ CPU · ✅ GPU acceleration · ✅ Internal storage · ✅ 120 Hz display · ✅ Touch · ✅ Manual brightness
 - ✅ Magnetic keyboard and touchpad · ✅ Native fingerprint login · ✅ Auto-rotation · ✅ Power and volume keys
 - ✅ Wi-Fi · ✅ Bluetooth · ✅ USB networking and developer mode · ✅ USB OTG · ✅ DP output
-- ✅ Four speakers · ✅ Single-microphone recording · ✅ H.264 hardware decoding · 🟡 Rear camera · ✅ Battery reporting and charging · 🟡 Standby
+- ✅ Four speakers · ❌ Recording currently unavailable · ✅ H.264 hardware decoding · 🟡 Rear camera · ✅ Battery reporting and charging · 🟡 Standby
 
 ### Platform, Display and Input
 
@@ -84,7 +84,7 @@ Not yet supported: Wi-Fi hotspot.
 | Feature | Component / Implementation | Status | Details |
 |---|---|---|---|
 | Four speakers | 4 × Cirrus Logic CS35L41 / AudioReach | ✅ Working | Stereo playback and volume control with this tablet's factory calibration |
-| Internal microphone | WCD938x / SoundWire / LPASS / ADSP | ✅ Working | Mono 48 kHz recording |
+| Internal microphone | WCD938x / SoundWire / LPASS / ADSP | ❌ Unsupported | Recording is currently unavailable |
 | H.264 hardware decoding | Qualcomm Iris2 / V4L2 | ✅ Working | Hardware decoding through the V4L2 interface |
 | Rear camera | S5KJN1 / Qualcomm CAMSS / libcamera software ISP | 🟡 Partial | Preview, photos and video in the Camera app; software image processing, no autofocus, video is not smooth. See [Camera](docs/CAMERA.en.md) |
 | Accelerometer / auto-rotation | SLPI / SSC / iio-sensor-proxy | ✅ Working | The login screen and desktop rotate with the tablet; landscape is kept while the magnetic keyboard is attached |
