@@ -1,70 +1,68 @@
 #!/bin/sh
-# Execute the real initramfs wait under BusyBox; synthetic sysfs has no /tmp.
+# Execute the real initramfs wait under BusyBox, with no /tmp in the fixture.
 set -eu
 project=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/bin" "$work/dev" "$work/sys" "$work/state"
+mkdir -p "$work/bin" "$work/dev" "$work/sys"
 bb=$(command -v busybox)
 cat >"$work/bin/bb" <<'EOF'
 #!/bin/sh
-if [ "$1" = blockdev ]; then
- echo "$*" >>"$WORK/calls"
- [ "${FAIL_LOCK:-0}" = 0 ]
-elif [ "$1" = mdev ] || [ "$1" = sleep ]; then
- name=$1; shift; exec "$WORK/bin/$name" "$@"
-else
- exec "$HOST_BB" "$@"
-fi
+case $1 in
+blockdev) echo "$*" >>"$WORK/calls"; [ "${FAIL_LOCK:-0}" = 0 ];;
+mdev)
+ n=$(cat "$WORK/scans"); n=$((n+1)); echo "$n" >"$WORK/scans"
+ if [ "$n" = "${ARRIVE:-0}" ]; then : >"$WORK/dev/${ARRIVE_NODE:-sdf}"; fi
+ ;;
+sleep)
+ n=$(cat "$WORK/sleeps"); n=$((n+1)); echo "$n" >"$WORK/sleeps"
+ echo "$((n / 10)).$((n % 10)) 0" >"$WORK/uptime"
+ ;;
+*) exec "$HOST_BB" "$@";;
+esac
 EOF
-cat >"$work/bin/mdev" <<'EOF'
-#!/bin/sh
-n=$(cat "$WORK/scans"); n=$((n+1)); echo "$n" >"$WORK/scans"
-if [ "$n" = "${ARRIVE:-0}" ]; then
- : >"$WORK/dev/sdf7"
-fi
-EOF
-cat >"$work/bin/sleep" <<'EOF'
-#!/bin/sh
-echo "$1" >>"$WORK/sleeps"
-EOF
-chmod +x "$work/bin/"*
-for node in sda sdb sdc sdd sde sdf sda34 sda35 sdb6 sdc6 sdd6 sde77 sdf7; do
- : >"$work/dev/$node"
- mkdir -p "$work/sys/$node"
- echo '8:1' >"$work/sys/$node/dev"
- case $node in *[0-9]) echo 1 >"$work/sys/$node/partition";; esac
-done
-echo PARTNAME=userdata >"$work/sys/sda35/uevent"
+chmod +x "$work/bin/bb"
+node() { : >"$work/dev/$1"; mkdir -p "$work/sys/$1"; echo "PARTNAME=$2" >"$work/sys/$1/uevent"; }
+reset() {
+ rm -rf "$work/dev" "$work/sys"; mkdir "$work/dev" "$work/sys"
+ for disk in sda sdb sdc sdd sde sdf; do : >"$work/dev/$disk"; done
+ node sda21 persist; node sde14 boot_a; node sde43 boot_b
+ ARRIVE=0; export ARRIVE
+}
 run() {
- echo 0 >"$work/scans"; : >"$work/calls"; : >"$work/sleeps"
+ echo 0 >"$work/scans"; echo 0 >"$work/sleeps"; echo '0.0 0' >"$work/uptime"; : >"$work/calls"
  WORK=$work HOST_BB=$bb LIUQIN_INIT_STORAGE_TEST_ONLY=1 \
  LIUQIN_INIT_STORAGE_TEST_PHASE=wait-ufs LIUQIN_INIT_TEST_PATH="$work/bin:/usr/bin:/bin" \
  LIUQIN_INIT_TEST_BUSYBOX="$work/bin/bb" LIUQIN_INIT_TEST_LOG="$work/log" \
+ LIUQIN_INIT_TEST_UPTIME="$work/uptime" \
  LIUQIN_STORAGE_DEV_ROOT="$work/dev" LIUQIN_STORAGE_SYS_BLOCK="$work/sys" \
- LIUQIN_STORAGE_TEST_REGULAR_FILES=1 "$bb" sh "$project/initramfs/init"
+ "$bb" sh "$project/initramfs/init" >"$work/result"
 }
-run
-[ ! -s "$work/sleeps" ]
-rm "$work/dev/sdf7"
-ARRIVE=4; export ARRIVE
-run
-[ "$(wc -l <"$work/sleeps")" = 3 ]
-rm "$work/dev/sdf7"
-ARRIVE=0
-if run; then echo 'missing partition accepted' >&2; exit 1; fi
-[ "$(wc -l <"$work/sleeps")" = 100 ]
-: >"$work/dev/sdf7"
-FAIL_LOCK=1; export FAIL_LOCK
-if run; then echo 'failed read-only guard accepted' >&2; exit 1; fi
-unset FAIL_LOCK
-rm "$work/dev/sda35"
-for num in 36 37; do
- : >"$work/dev/sda$num"; mkdir -p "$work/sys/sda$num"
-done
-rm -r "$work/sys/sda35"
-echo PARTNAME=linux_root >"$work/sys/sda36/uevent"
-echo PARTNAME=linux_home >"$work/sys/sda37/uevent"
-run
-[ ! -s "$work/sleeps" ]
-echo 'PASS: immediate readiness, delayed partition, timeout, lock failure and split layout'
+reset; node sda35 userdata; run
+[ "$(cat "$work/sleeps")" = 2 ]
+reset; node sda35 userdata; node sda36 linux_root; node sda37 linux_home; run
+[ "$(cat "$work/sleeps")" = 2 ]
+# 512 GB fixture deliberately uses different numbers for every named partition.
+reset; rm -rf "$work/dev" "$work/sys"; mkdir "$work/dev" "$work/sys"
+for disk in sda sdb sdc sdd sde sdf; do : >"$work/dev/$disk"; done
+node sda9 persist; node sde8 boot_a; node sde29 boot_b
+node sda42 userdata; node sda45 linux_root; node sda46 linux_home; run
+[ "$(cat "$work/sleeps")" = 2 ]
+# Linux-only has no userdata at all.
+reset; node sda36 linux_root; node sda37 linux_home; run
+[ "$(cat "$work/sleeps")" = 2 ]
+rm "$work/dev/sdf"; ARRIVE=4; export ARRIVE
+run; [ "$(cat "$work/sleeps")" = 5 ]
+# New partition invalidates stability too, even if required names already exist.
+ARRIVE_NODE=sda99 ARRIVE=2; export ARRIVE_NODE ARRIVE
+run; [ "$(cat "$work/sleeps")" = 3 ]
+unset ARRIVE_NODE
+ARRIVE=0; rm "$work/dev/sdf"
+if run; then echo 'missing LUN accepted before timeout' >&2; exit 1; fi
+[ "$(cat "$work/sleeps")" = 100 ]
+[ "$(cat "$work/result")" = found_block=true ]
+# Timeout without any block devices preserves the separate discovery fact.
+rm -rf "$work/dev" "$work/sys"; mkdir "$work/dev" "$work/sys"
+if run; then exit 1; fi
+[ "$(cat "$work/result")" = found_block=false ]
+echo 'PASS: stock, split, 512 GB numbering, Linux-only, late LUN, changing set, timeout discovery'
