@@ -45,6 +45,7 @@ jobs:
       - name: Device-side home preservation
         run: |
           sh tests/install-root.sh
+          sudo python3 tests/install-keep-home.py
       - name: Sensor startup policy
         run: |
           sudo python3 tests/sensor-startup.py

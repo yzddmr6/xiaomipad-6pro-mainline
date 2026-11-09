@@ -339,6 +339,6 @@ Android 恢复路线仍待独立真机验证，不应将 Ubuntu 安装通过等�
 
 已有受支持的 split 布局时，可在 `--keep-home` 重装命令中用 `--no-backup` 替代 `--backup 路径`，明确跳过启动分区、persist 与 GPT 备份。该选项不允许首次分区或恢复分区表。默认安装仍执行备份。
 
-`--keep-home` 只保留独立 `/home`，仍会重建 Ubuntu 系统分区，旧账号配置与系统中的指纹模板/凭据会清除；首次设置时需重新创建账号并录入指纹。
+`--keep-home` 保留独立 `/home`，重建 Ubuntu 系统分区前只读提取普通用户（UID/GID 1000–59999）、系统组中的附加成员关系、AccountsService 用户资料与头像、NetworkManager 连接和蓝牙配对，并在新根恢复；正常情况下直接回到原登录界面。新根有同名或同 UID/GID 账户/组时，在格式化前停止，不覆盖系统账户。旧根缺失、不可读或账户格式异常时，安装器明确提示回退到首次设置，需要重新创建账号。指纹模板和凭据不迁移，仍需重新录入。
 
 本版完整包同时附带 `liuqin_boot_ubuntu-v0.3.zip`、`dualboot-tools.zip` 和公开指纹构建输入；正常使用指纹无需再安装单独应用。解压 `dualboot-tools.zip` 后可按本文命令获取、校验 KernelSU 上游组件并生成 Android boot。

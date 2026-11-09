@@ -584,6 +584,7 @@ if [ -n "${INSTALLER_RUNTIME:-}" ]; then
 	mkdir -p "$staging/usr/lib/liuqin"
 	cp "$project_root/tools/lib/install-preflight.sh" "$staging/usr/lib/liuqin/install-preflight.sh"
 	cp "$project_root/tools/lib/install-devmode.sh" "$staging/usr/lib/liuqin/install-devmode.sh"
+	cp "$project_root/tools/lib/install-keep-home.sh" "$project_root/tools/lib/install-keep-home.awk" "$staging/usr/lib/liuqin/"
 	cp "$project_root/tools/lib/install-root.sh" "$staging/usr/lib/liuqin/install-root.sh"
 	cp "$project_root/tools/lib/install-layout.sh" "$staging/usr/lib/liuqin/install-layout.sh"
 	cp "$project_root/tools/lib/install-switch-store.sh" "$staging/usr/lib/liuqin/install-switch-store.sh"

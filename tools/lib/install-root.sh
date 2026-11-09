@@ -131,6 +131,35 @@ home_needs_skeleton() { # <mounted home> <KEEP-HOME or empty>
 	fi
 	printf 'liuqin-install: home partition is empty; seeding the skeleton\n'
 }
+# Snapshot and validate against the new account databases while all UFS nodes
+# are still read-only. A conflict is fatal before mkfs; unreadable old state
+# falls back to first setup, as older installers did.
+prepare_kept_state() {
+ [ "$keep_home" = KEEP-HOME ] || return 0
+ kh_state=/run/liuqin-keep-home
+ kh_helper=/usr/lib/liuqin/install-keep-home.sh
+ /bin/busybox rm -rf "$kh_state"
+ /bin/busybox mkdir -p "$kh_state" /run/liuqin-old-root
+ /bin/busybox chmod 0700 "$kh_state"
+ if mount -t ext4 -o ro,noload "$root" /run/liuqin-old-root; then
+  old_mounted=true
+  if sh "$kh_helper" snapshot "$kh_state" /run/liuqin-old-root/native-root; then
+   kept_state=true
+  else
+   printf 'liuqin-install: KEEP-HOME: old state unavailable or invalid; first setup required\n'
+  fi
+  umount /run/liuqin-old-root
+  old_mounted=false
+ else
+  printf 'liuqin-install: KEEP-HOME: old root unreadable; first setup required\n'
+ fi
+ if [ "$kept_state" = true ]; then
+  /bin/busybox mkdir "$kh_state/new"
+  /usr/bin/tar -xzf "$archive" -C "$kh_state/new" \
+   ./etc/passwd ./etc/shadow ./etc/group ./etc/gshadow
+  sh "$kh_helper" merge "$kh_state" "$kh_state/new" || die 'KEEP-HOME account conflict/invalid new root; nothing formatted'
+ fi
+}
 root=$(find_part "$root_name")
 home=$(find_part "$home_name")
 [ "$root" != "$home" ] || die 'the system and home partitions must differ'
@@ -174,9 +203,14 @@ home_mounted=false
 opened=false
 persist_mounted=false
 download_mounted=false
+old_mounted=false
+kept_state=false
 cleanup() {
 	cleanup_failed=0
 	sync
+	if [ "${old_mounted:-false}" = true ]; then
+		umount /run/liuqin-old-root && old_mounted=false || cleanup_failed=1
+	fi
 	if [ "$home_mounted" = true ]; then
 		umount /mnt/install-home && home_mounted=false || cleanup_failed=1
 	fi
@@ -223,6 +257,7 @@ for item in wlan/wlan_mac.bin bluetooth/.bt_nv.bin audio/crus_calr.bin; do
 	[ -f "/run/persist/$item" ] || die 'factory data is incomplete'
 done
 [ -d /run/persist/sensors/registry/registry ] || die 'factory sensor registry is missing'
+prepare_kept_state
 opened=true
 /bin/busybox blockdev --setrw "$parent"
 /bin/busybox blockdev --setrw "$root"
@@ -234,6 +269,9 @@ mounted=true
 mkdir /mnt/install/native-root
 /usr/bin/tar -xzf "$archive" -C /mnt/install/native-root \
 	--numeric-owner --same-owner --same-permissions --acls --xattrs --xattrs-include='*' --warning=no-timestamp
+if [ "$kept_state" = true ]; then
+ sh /usr/lib/liuqin/install-keep-home.sh restore /run/liuqin-keep-home /mnt/install/native-root
+fi
 PERSIST_SRC=/run/persist sh /usr/lib/liuqin/provision.sh /mnt/install/native-root
 if [ "$rescue" = ENABLE-USB-RESCUE ]; then
 	sh /usr/lib/liuqin/install-devmode.sh install /mnt/install/native-root
