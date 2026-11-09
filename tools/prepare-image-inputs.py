@@ -214,6 +214,10 @@ def cmd_check() -> None:
 
 def cmd_run() -> None:
     cache, plan = gather()
+    # Create the shared parent as the invoking user; the privileged sensor
+    # builder below would otherwise create it as root and lock out the
+    # unprivileged topology and firmware steps.
+    PREPARED.mkdir(parents=True, exist_ok=True)
 
     sensors_work = PROJECT / 'out/prepared-inputs/sensors'
     if plan['sensors']['hit']:
