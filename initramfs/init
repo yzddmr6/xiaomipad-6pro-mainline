@@ -1052,6 +1052,21 @@ storage_wait_ufs() {
 	done
 }
 
+# Recovery is an explicit host action through fastboot boot of the installer.
+# Do not leave an unauthenticated channel or loop back into the broken OS.
+boot_failure_to_fastboot() {
+	if ! storage_abort; then
+		log "critical: storage could not be sealed; withholding automatic reboot"
+		return 1
+	fi
+	log "BOOT_FAILED_STORAGE_SEALED: returning to bootloader in 30 seconds"
+	"$BB" sync
+	"$BB" sleep 30
+	liuqin-reboot bootloader
+	log "critical: bootloader restart returned; remaining sealed"
+	return 1
+}
+
 # The mutation test enters only the storage gate.  It uses an isolated fake
 # /dev, sysfs and command PATH, and never reaches the real init sequence.
 if [ "${LIUQIN_INIT_STORAGE_TEST_ONLY:-0}" = 1 ]; then
@@ -1510,5 +1525,5 @@ if [ "$storage_mode" = readonly ] && [ -f "$storage_installer_marker" ] && [ "$u
 	log "starting installer local emergency shell"
 	while true; do setsid cttyhack sh; sleep 1; done
 fi
-log "boot failed; storage sealed, boot the installer explicitly for recovery"
+boot_failure_to_fastboot || true
 while true; do sleep 60; done

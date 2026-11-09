@@ -76,8 +76,14 @@ with tempfile.TemporaryDirectory() as directory:
         run('/channel')
         assert not (root/'sys/kernel/config/usb_gadget/liuqin').exists()
         tail=init[init.index('log "pstore is available'):]
-        (root/'failure').write_text(header+'log() { :; }\nsleep() { exit 99; }\nsetsid() { echo opened >/shell-opened; exit 98; }\n'+tail)
+        recovery=init[init.index('boot_failure_to_fastboot() {'):init.index('# The mutation test enters')]
+        script('bin/recovery-bb','echo "$*" >>/recovery-log')
+        script('bin/liuqin-reboot','echo "reboot $*" >>/recovery-log; exit 1')
+        (root/'failure').write_text(header+'BB=/bin/recovery-bb\nlog() { echo "$*" >>/recovery-log; }\nsleep() { exit 99; }\nstorage_abort() { echo sealed >>/recovery-log; }\nsetsid() { echo opened >/shell-opened; exit 98; }\n'+recovery+tail)
         run('/failure',ok=False)
+        events=(root/'recovery-log').read_text()
+        assert events.index('sealed') < events.index('sleep 30') < events.index('reboot bootloader')
+        assert 'reboot normal' not in events
         assert not (root/'shell-opened').exists()
     # Actual OpenSSH parses the shipped policy: no password or keyboard login.
     config=overlay/'usr/lib/liuqin/devmode/sshd_config'

@@ -490,6 +490,14 @@ if [ "$charger_mode" = 1 ]; then
 	done
 fi
 
+# Use the installer's existing RESTART2 helper for product recovery too.
+if [ -x "$staging/bin/liuqin-charger-mode-exit" ]; then
+	ln -s liuqin-charger-mode-exit "$staging/bin/liuqin-reboot"
+else
+	"$slot_success_gcc" -static -Os -s -Wall -Wextra -Werror \
+		"$charger_exit_source" -o "$staging/bin/liuqin-reboot"
+fi
+
 mkdir -p "$staging/lib/firmware/novatek/liuqin"
 printf '%s\n' "$touch_firmware_sha256" | while read -r _ firmware_name; do
 	cp "$touch_firmware_dir/$firmware_name" \
