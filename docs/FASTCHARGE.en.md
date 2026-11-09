@@ -54,7 +54,6 @@ adapter that is not Xiaomi-branded.
 | `/usr/local/libexec/liuqin-mipps-auth` | authentication daemon (Python, GPL-2.0-only; see `NOTICE`) |
 | `/etc/systemd/system/liuqin-mipps-auth.service` | oneshot unit that runs the daemon with `--role-first` |
 | `/etc/systemd/system/liuqin-mipps-battery-auth.service` | authenticates both fuel gauges at boot, before the charger unit |
-| `/etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf` | enables the standard PPS switch |
 | `/etc/udev/rules.d/90-liuqin-mipps-auth.rules` | starts the unit on Type-C partner attach and USB power online |
 
 The daemon talks to the charger firmware through the `xiaomi` attribute group
@@ -84,8 +83,8 @@ The daemon runs once per Type-C attach, in this order:
    and a refused request stops the run before any adapter command is sent.
 4. Adapter authentication through `request_vdm_cmd`: the UVDM handshake
    (commands 1 to 3), a session seed (command 4), a random challenge
-   (command 5), then the Android completion order, verdict (command 7) followed
-   by command 6. Command 8, the reverse authentication response, is not sent: it
+   (command 5), then the Android completion order, REMOVE_COMPENSATION (command 7) followed
+   by VERIFIED (command 6). Command 8, the reverse authentication response, is not sent: it
    timed out on this hardware, and the stock system's own log shows the same
    7 → 6 order.
 5. `pd_verifed` is written with the verdict. The firmware then selects the
@@ -123,36 +122,24 @@ networking keep working while charging. Those sources are still probed for
 authentication, and a Xiaomi phone presents the same SVID and is treated the same
 way as a Xiaomi adapter.
 
-The firmware can keep the previous `adapter_svid` for a moment after a detach, so
-a computer attached immediately after a Xiaomi adapter can look like another
-adapter attach. Unplug and replug if USB device mode is needed in that case.
+The daemon waits for the negotiated contract before reading SVID and data role.
+It checks the Type-C partner throughout the handshake, so detach or replacement
+cannot reuse a previous verdict. Hardware testing must still cover rapid replug.
 
 ## Standard PPS adapters
 
-An adapter that is not Xiaomi-branded cannot pass the handshake, so the firmware
-holds the contract at 9 V. With `10-allow-unverified-adapter.conf` installed,
-the daemon asserts `pd_verifed` for such adapters when all of the following hold:
+Only adapters that pass Xiaomi authentication enable the high-voltage path by default.
+This includes compatible third-party adapters; branding alone is not the criterion.
+Other adapters retain the firmware's ordinary PD/PPS contract. The old packaged
+`10-allow-unverified-adapter.conf` is removed on upgrade. The battery authentication
+unit is enabled on installation and upgrade.
 
-- the negotiated contract is `PD_PPS`;
-- the cable is rated for the current the high-voltage path draws. When the
-  kernel exposes the cable identity, the e-marker must state 5 A. When it does
-  not, the decision relies on the USB-PD rule that a source offers more than
-  3 A only after reading a 5 A e-marker itself.
-
-The drop-in also passes `--role-first`, so the standard PPS path keeps the same
-ordering as the MiPPS path. Since such an adapter does not report the Xiaomi
-SVID, no host role is requested for it.
-
-The decision and its reason are logged as `unverified_adapter=allowed: …` or
-`unverified_adapter=refused: …` in the unit's journal. The desktop notification
-reports the negotiated profile (PPS or PD), not MiPPS.
-
-To keep strictly authentication-gated behaviour, remove the drop-in:
-
-```sh
-sudo rm -r /etc/systemd/system/liuqin-mipps-auth.service.d
-sudo systemctl daemon-reload
-```
+The command-line `--allow-unverified-adapter` override remains an explicit opt-in,
+subject to a PD_PPS contract and the cable capability check (3 A is rejected;
+5 A is accepted; without cable identity it relies on source-side enforcement).
+The shipped service does not pass this option, even for a 5 A cable or a charger
+that ignores UVDM. Authentication failures and detach clear `pd_verifed`; only a
+successful handshake bound to the current Type-C partner can be reused.
 
 ## Verifying
 

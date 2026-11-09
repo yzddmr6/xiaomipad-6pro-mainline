@@ -12,6 +12,7 @@ import hmac
 import importlib.machinery
 import importlib.util
 import io
+import shlex
 import sys
 import tempfile
 from pathlib import Path
@@ -30,6 +31,8 @@ SEED_INDEX = 3
 ATTACH = 'port0-partner:1:2:3'
 DEVICE_ROLE = 'host [device]'
 HOST_ROLE = '[host] device'
+original_write_node = auth.write_node
+original_read_node = auth.read_node
 
 
 class Fixture:
@@ -45,6 +48,11 @@ class Fixture:
         self.state.parent.mkdir(parents=True)
         self.events = []
         self.online = True
+        self.attach = ATTACH
+        self.disconnect_at = None
+        self.cable_amps = None
+        self.clock = 0.0
+        self.seed_index = None
         self.vdm_failure = None
         self.role_failure = False
         self.nodes = {
@@ -80,15 +88,20 @@ class Fixture:
 
     def install_patches(self):
         auth.ROLE_FIRST_STATE_FILE = str(self.state)
-        auth.ROLE_READY_TIMEOUT = 0.05
+        auth.VERIFIED_STATE_FILE = str(self.state.parent / "verified-attach")
         auth.NOTIFICATION_STATE_FILE = str(self.state.parent / 'notification')
         auth.CHARGE_PROFILE_STATE_FILE = str(self.state.parent / 'profile')
         auth.USB_ONLINE_STATE_FILE = str(self.state.parent / 'usb-online')
-        auth.time.sleep = lambda _seconds: None
+        def tick():
+            self.clock += 0.1
+            return self.clock
+        auth.time.monotonic = tick
+        auth.time.sleep = lambda seconds: setattr(self, 'clock', self.clock + seconds)
         auth.secrets.token_hex = lambda _length: CHALLENGE
         auth.find_typec_port = lambda: str(self.port)
         auth.usb_is_online = lambda: self.online
-        auth.current_attach_token = lambda: ATTACH
+        auth.current_attach_token = lambda: self.attach
+        auth.cable_current_capability_amps = lambda: self.cable_amps
         auth.wait_usb_online = lambda _timeout: self.online
         auth.wait_real_type = lambda _root, _timeout: self.nodes['real_type']
         auth.detect_adapter_id = lambda _root, _timeout: ADAPTER_ID
@@ -97,13 +110,21 @@ class Fixture:
         def enable_battery_auth(_root):
             self.events.append(('fuel-gauge',))
 
-        def send_vdm(_root, cmd, payload='null', **_kwargs):
+        def write_node(root, name, value):
+            if name != 'request_vdm_cmd':
+                return original_write_node(root, name, value)
+            cmd, payload = value.split(',', 1)
+            cmd = int(cmd)
             self.events.append(('vdm', cmd))
+            if self.disconnect_at == cmd:
+                self.online = False
+                self.attach = None
             if self.vdm_failure:
-                raise auth.UnsupportedChargerError(self.vdm_failure)
-            if cmd == 5:
-                return cmd, self.expected_digest()[:32]
-            return cmd, ''
+                return
+            if cmd == 4:
+                self.seed_index = auth.SEEDS.index(payload)
+            response = self.expected_digest()[:32] if cmd == 5 else ''
+            original_write_node(root, name, f'{cmd},{response}')
 
         def request_host(_port, _timeout):
             self.events.append(('role', self.role()))
@@ -113,18 +134,19 @@ class Fixture:
             return 0, ''
 
         auth.enable_battery_auth = enable_battery_auth
-        auth.send_vdm = send_vdm
+        auth.write_node = write_node
         auth.request_host_data_role = request_host
 
     def expected_digest(self):
         message = bytes.fromhex(CHALLENGE + ADAPTER_ID)
-        key = bytes.fromhex(auth.KEYS[SEED_INDEX])
+        key = bytes.fromhex(auth.KEYS[self.seed_index])
         return hmac.new(key, message, hashlib.sha256).hexdigest()
 
     def run_main(self, *extra):
-        auth.sys.argv = ['liuqin-mipps-auth', '--role-first', '--sysfs',
-                         str(self.root), '--seed-index', str(SEED_INDEX),
-                         '--timeout', '1', *extra]
+        unit = (project / 'device/gnome-overlay/etc/systemd/system/liuqin-mipps-auth.service').read_text()
+        command = unit.split('/usr/local/libexec/liuqin-mipps-auth ', 1)[1].split('\n', 1)[0]
+        auth.sys.argv = ['liuqin-mipps-auth', *shlex.split(command),
+                         '--sysfs', str(self.root), *extra]
         with contextlib.redirect_stdout(io.StringIO()), \
                 contextlib.redirect_stderr(io.StringIO()):
             auth.main()
@@ -155,7 +177,8 @@ with tempfile.TemporaryDirectory() as directory:
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
-    fixture.set('pd_verifed', '1')
+    fixture.run_main()
+    fixture.events.clear()
     (fixture.port / 'data_role').write_text(HOST_ROLE + '\n')
     fixture.run_main()
     check('a verified attach is not replayed', not fixture.events)
@@ -216,5 +239,72 @@ with tempfile.TemporaryDirectory() as directory:
     fixture.online = False
     fixture.run_main()
     check('an offline port sends no adapter command', not fixture.events)
+
+for amps in (None, 3, 5):
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = Fixture(directory)
+        fixture.cable_amps = amps
+        fixture.vdm_failure = 'silent'
+        fixture.set('pd_verifed', '1')
+        fixture.run_main()
+        check(f'default policy rejects silent charger with {amps} A cable',
+              not auth.pd_verified(str(fixture.root)))
+
+for cmd in (1, 4, 5, 7, 6):
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = Fixture(directory)
+        fixture.disconnect_at = cmd
+        fixture.set('pd_verifed', '1')
+        try:
+            fixture.run_main()
+        except auth.UnsupportedChargerError:
+            pass
+        check(f'detach during command {cmd} clears the verdict',
+              not auth.pd_verified(str(fixture.root)))
+        check(f'detach during command {cmd} stops subsequent writes',
+              fixture.vdm_calls()[-1] == cmd, fixture.vdm_calls())
+
+for failure in ('offline', 'not-ready', 'role-refused', 'no-partner', 'already-attempted', 'no-pdo'):
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = Fixture(directory)
+        fixture.set('pd_verifed', '1')
+        fixture.set('request_vdm_cmd', '6,')
+        if failure == 'offline': fixture.online = False
+        if failure == 'not-ready': fixture.set('current_state', 'SNK_Wait')
+        if failure == 'role-refused': fixture.role_failure = True
+        if failure == 'no-partner': fixture.attach = None
+        if failure == 'already-attempted': fixture.state.write_text(ATTACH)
+        if failure == 'no-pdo': fixture.set('pdo2', '00000000')
+        try:
+            fixture.run_main()
+        except auth.UnsupportedChargerError:
+            pass
+        check(f'{failure} clears stale success', not auth.pd_verified(str(fixture.root)))
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('pd_verifed', '1')
+    fixture.set('request_vdm_cmd', '6,')
+    fixture.run_main()
+    check('stale completed VDM without this attach proof is reauthenticated',
+          fixture.vdm_calls() == [1, 2, 3, 4, 5, 7, 6])
+    fixture.events.clear()
+    fixture.attach = 'port0-partner:1:3:4'
+    fixture.run_main()
+    check('a new attach does not inherit success', bool(fixture.vdm_calls()))
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('adapter_svid', '0x1234')
+    reads = []
+    def read_node(root, name):
+        reads.append(name)
+        if name == 'current_state': fixture.set('adapter_svid', '0x2717')
+        return original_read_node(root, name)
+    auth.read_node = read_node
+    fixture.run_main()
+    auth.read_node = original_read_node
+    check('SVID and data role are read after the negotiated contract',
+          reads.index('current_state') < reads.index('adapter_svid') < reads.index('data_role'))
 
 print('Role-first ordering and fail-closed checks passed; not a protocol test.')

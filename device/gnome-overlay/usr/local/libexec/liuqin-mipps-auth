@@ -26,6 +26,7 @@ import os
 import pwd
 import random
 import secrets
+import signal
 import shlex
 import subprocess
 import sys
@@ -68,6 +69,8 @@ FAST_CHARGE_NOTIFICATION_TITLE = "Fast charge active"
 NOTIFICATION_STATE_FILE = "/run/liuqin-mipps-auth/last-notification"
 CHARGE_PROFILE_STATE_FILE = "/run/liuqin-mipps-auth/charge-profile"
 USB_ONLINE_STATE_FILE = "/run/liuqin-mipps-auth/usb-online"
+VERIFIED_STATE_FILE = "/run/liuqin-mipps-auth/verified-attach"
+ACTIVE_ATTACH = None
 ROLE_FIRST_STATE_FILE = "/run/liuqin-mipps-auth/role-first-attempt"
 SYSTEMD_UNIT = "liuqin-mipps-auth.service"
 ROLE_READY_TIMEOUT = 8
@@ -506,6 +509,7 @@ def wait_source_ready(root, timeout):
     real_type = None
     state = None
     while time.monotonic() < deadline:
+        require_current_attach()
         real_type = current_string_value(root, "real_type")
         state = current_string_value(root, "current_state")
         if real_type in ("PD", "PD_PPS") and state == "SNK_Ready":
@@ -530,6 +534,16 @@ def request_host_data_role(port, timeout):
         return 1, str(e)
 
 
+def require_current_attach():
+    if not ACTIVE_ATTACH or not usb_is_online() or current_attach_token() != ACTIVE_ATTACH:
+        raise UnsupportedChargerError("Type-C attach changed during authentication")
+
+
+def clear_verdict(root):
+    write_node_if_present(root, "pd_verifed", "0")
+    write_state_file(VERIFIED_STATE_FILE, "none")
+
+
 def role_first_prelude(root):
     """Sequence that must precede the adapter authentication.
 
@@ -546,6 +560,12 @@ def role_first_prelude(root):
     if not usb_is_online():
         print("role_first=usb_offline_no_adapter_commands")
         return False
+
+    ready, real_type, state = wait_source_ready(root, ROLE_READY_TIMEOUT)
+    if not ready:
+        print(f"role_first=source_not_ready real_type={real_type} current_state={state}")
+        return False
+    require_current_attach()
 
     adapter_svid = current_adapter_svid(root)
     if adapter_svid != XIAOMI_SVID:
@@ -569,20 +589,9 @@ def role_first_prelude(root):
         print(f"role_first=no_data_role: {e}")
         return False
 
-    if pd_verified(root) and "[host]" in role:
-        print(f"role_first=already_verified fastchg_mode="
-              f"{current_string_value(root, 'fastchg_mode')}")
-        return False
-
     attach_token = current_attach_token()
-    if attach_token and read_state_file(ROLE_FIRST_STATE_FILE) == attach_token:
+    if read_state_file(ROLE_FIRST_STATE_FILE) == attach_token:
         print("role_first=already_attempted_this_attach")
-        return False
-
-    ready, real_type, state = wait_source_ready(root, ROLE_READY_TIMEOUT)
-    if not ready:
-        print(f"role_first=source_not_ready real_type={real_type} "
-              f"current_state={state}")
         return False
 
     if "[host]" not in role:
@@ -601,6 +610,7 @@ def role_first_prelude(root):
             print("role_first=no_host_no_adapter_commands")
             return False
 
+    require_current_attach()
     if attach_token:
         write_state_file(ROLE_FIRST_STATE_FILE, attach_token)
     print("role_first=proceed")
@@ -617,6 +627,7 @@ def wait_state(root, expected, timeout):
     deadline = time.monotonic() + timeout
     last = None
     while time.monotonic() < deadline:
+        require_current_attach()
         last = vdm_state(root)
         if last[0] == expected:
             return last
@@ -625,9 +636,11 @@ def wait_state(root, expected, timeout):
 
 
 def send_vdm(root, cmd, payload="null", timeout=2.0, wait=True, settle=0.0):
+    require_current_attach()
     write_node(root, "request_vdm_cmd", f"{cmd},{payload}")
     if not wait:
         time.sleep(settle)
+        require_current_attach()
         return vdm_state(root)
     state = wait_state(root, cmd, timeout)
     if settle:
@@ -686,7 +699,9 @@ def should_skip_pdo2(root):
 
 
 def auth_already_completed(root, state):
-    return state in (6, 7) and pd_verified(root)
+    token = current_attach_token()
+    return (bool(token) and usb_is_online() and state in (6, 7) and pd_verified(root)
+            and read_state_file(VERIFIED_STATE_FILE) == token)
 
 
 def print_status(root):
@@ -786,6 +801,7 @@ def main():
     args = parser.parse_args()
 
     if args.clear_notification:
+        clear_verdict(args.sysfs or find_xiaomi_dir())
         write_state_file(NOTIFICATION_STATE_FILE, "none")
         write_state_file(CHARGE_PROFILE_STATE_FILE, "none")
         write_state_file(USB_ONLINE_STATE_FILE, "0")
@@ -802,10 +818,29 @@ def main():
         return
 
     root = args.sysfs or find_xiaomi_dir()
-    if args.battery_auth_only:
-        enable_battery_auth(root)
-        print("battery_auth_only=completed")
-        return
+    global ACTIVE_ATTACH
+    ACTIVE_ATTACH = current_attach_token()
+    keep_verdict = False
+    try:
+        if args.battery_auth_only:
+            enable_battery_auth(root)
+            print("battery_auth_only=completed")
+            return
+        if auth_already_completed(root, vdm_state(root)[0]) and not args.force:
+            keep_verdict = True
+            print("MiPPS auth sequence already completed for this attach")
+            return
+        clear_verdict(root)
+        if not ACTIVE_ATTACH or not usb_is_online():
+            print("usb_online=0 or no Type-C partner")
+            return
+        keep_verdict = authenticate(root, args)
+    finally:
+        if not (keep_verdict and usb_is_online() and current_attach_token() == ACTIVE_ATTACH):
+            clear_verdict(root)
+
+
+def authenticate(root, args):
     if args.role_first:
         if not role_first_prelude(root):
             return
@@ -829,23 +864,15 @@ def main():
             print("warning: no Type-C partner found for once-per-attach state",
                   file=sys.stderr)
 
-    state, _ = vdm_state(root)
-    if auth_already_completed(root, state) and not args.force:
-        print(f"sysfs={root}")
-        enable_battery_auth(root)
-        print("MiPPS auth sequence already completed")
-        print_status(root)
-        notify_completed_charge(root, NOTIFICATION_STATE_FILE)
-        return
-
     try:
         seed_index = args.seed_index if args.seed_index is not None else random.randrange(len(SEEDS))
         print(f"sysfs={root}")
         print(f"real_type={wait_real_type(root, args.timeout)}")
         print(f"seed_index={seed_index}")
 
-        if not args.no_data_role_swap:
-            ensure_typec_host(args.timeout)
+        require_current_attach()
+        if not args.no_data_role_swap and not ensure_typec_host(args.timeout):
+            return False
 
         adapter_svid = current_adapter_svid(root)
         if adapter_svid is None:
@@ -903,17 +930,22 @@ def main():
 
         pd_auth_payload = "01000000" if pd_auth else "00000000"
         if adapter_id:
+            # Android: 7 = REMOVE_COMPENSATION, 6 = VERIFIED.
+            require_current_attach()
             send_vdm(root, 7, pd_auth_payload, timeout=args.timeout, wait=False,
                      settle=0.1)
+            require_current_attach()
             send_vdm(root, 6, pd_auth_payload, timeout=args.timeout, wait=False,
                      settle=0.02)
             print("adapter_sequence=android:7,6")
         else:
             print("adapter_auth_result=skipped")
 
+        require_current_attach()
+        gate = False
         # pd_verifed is the firmware's gate on the high-voltage charge path and
         # is normally the outcome of the adapter authentication above.  Adapters
-        # that are not Xiaomi-branded can never compute the expected digest, so
+        # without Xiaomi protocol support cannot compute the expected digest, so
         # pd_auth stays 0 and plain PPS fast charging never engages even though
         # PPS itself negotiated fine.  --allow-unverified-adapter is the explicit
         # user opt-in that asserts the gate anyway.
@@ -922,6 +954,7 @@ def main():
             if not pd_auth and args.allow_unverified_adapter:
                 gate, reason = unverified_adapter_allowed(root)
                 print(f"unverified_adapter={'allowed' if gate else 'refused'}: {reason}")
+            require_current_attach()
             write_node(root, "pd_verifed", "1" if gate else "0")
             if gate and not pd_auth:
                 print("pd_verifed=1 (adapter authentication bypassed on request)")
@@ -940,9 +973,17 @@ def main():
     else:
         if attach_token:
             write_state_file(args.state_file, attach_token)
+        require_current_attach()
+        if gate:
+            write_state_file(VERIFIED_STATE_FILE, ACTIVE_ATTACH)
+        return gate
 
 
 if __name__ == "__main__":
+    def interrupted(signum, _frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
     try:
         main()
     except UnsupportedChargerError as e:

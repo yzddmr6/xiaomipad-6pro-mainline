@@ -197,6 +197,7 @@ END {
 	}
 	link_unit basic.target.requires liuqin-gnome-storage-guard.service
 	link_unit multi-user.target.wants liuqin-gnome-usb-rescue.service
+	link_unit multi-user.target.wants liuqin-mipps-battery-auth.service
 	link_unit multi-user.target.wants liuqin-slpi.service
 	link_unit multi-user.target.wants liuqin-power-keyd.service
 	link_unit graphical.target.wants liuqin-backlight-default.service

@@ -44,7 +44,6 @@ A-C 线，守护进程完成了真实握手，快充随之生效：
 | `/usr/local/libexec/liuqin-mipps-auth` | 认证守护进程（Python，GPL-2.0-only，见 `NOTICE`） |
 | `/etc/systemd/system/liuqin-mipps-auth.service` | 以 `--role-first` 运行守护进程的 oneshot 单元 |
 | `/etc/systemd/system/liuqin-mipps-battery-auth.service` | 开机时先于充电单元完成双电芯认证 |
-| `/etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf` | 启用标准 PPS 开关 |
 | `/etc/udev/rules.d/90-liuqin-mipps-auth.rules` | Type-C 连接与 USB 供电上线时拉起单元 |
 
 守护进程通过项目内核在 PMIC GLINK 电源设备上导出的 `xiaomi` 属性组与充电固件通信：
@@ -67,7 +66,7 @@ A-C 线，守护进程完成了真实握手，快充随之生效：
 3. 取得 Type-C host 数据角色，即原厂系统连接小米适配器时所处的角色。每次连接只请求一次；
    请求失败时在发送任何适配器命令之前停止。
 4. 通过 `request_vdm_cmd` 做适配器认证：UVDM 握手（命令 1–3）、会话种子（命令 4）、随机
-   挑战（命令 5），随后按 Android 的收尾顺序先发判定（命令 7）再发命令 6。命令 8（反向
+   挑战（命令 5），随后按 Android 的收尾顺序先发 REMOVE_COMPENSATION（命令 7）再发 VERIFIED（命令 6）。命令 8（反向
    认证应答）不发送：它在本机超时，且原厂系统日志同样是 7 → 6。
 5. 按判定写入 `pd_verifed`。固件随后选择充电档位，结果体现在 `fastchg_mode`、`power_max`
    与 `real_type`。
@@ -98,30 +97,19 @@ pd_verifed=1
 第三方充电器——保持已协商的 device 角色，因此充电时 USB 设备模式与 USB 网络仍可正常工作。
 这些来源仍会做认证探测；小米手机同样报告该 SVID，处理方式与小米适配器一致。
 
-固件在拔出后可能短暂保留上一次的 `adapter_svid`，因此刚接完小米适配器就接电脑时，可能被
-当成又一次适配器接入。此时若需要 USB 设备模式，请重新拔插。
+守护进程等合同稳定后才读取 SVID 和数据角色，并在握手期间检查 Type-C partner，
+拔线或连接替换不能继承上一次的成功判定。快速拔插仍需在候选上做硬件验收。
 
 ## 标准 PPS 适配器
 
-非小米适配器无法通过握手，固件会把合同保持在 9 V。安装 `10-allow-unverified-adapter.conf`
-后，守护进程在同时满足下列条件时为此类适配器置位 `pd_verifed`：
+默认只有通过小米协议认证的适配器才能打开高压通路，包括支持该协议的第三方产品；
+品牌不是判据。其他适配器保持固件的普通 PD/PPS 合同。升级会删除旧包默认安装的
+`10-allow-unverified-adapter.conf`；新装和升级都会启用电池认证单元。
 
-- 已协商的合同为 `PD_PPS`；
-- 线缆额定电流满足高压通路的需求。内核导出线缆身份时，e-marker 必须标注 5 A；未导出时，
-  依据 USB-PD 规范中"源端只有自行读到 5 A e-marker 才会提供 3 A 以上档位"的规则做判定。
-
-该 drop-in 同时传入 `--role-first`，因此标准 PPS 路径与 MiPPS 路径保持相同顺序。此类适配器
-不报告小米 SVID，因此不会为其请求 host 角色。
-
-判定及其原因记录在单元日志中，形如 `unverified_adapter=allowed: …` 或
-`unverified_adapter=refused: …`。桌面通知显示实际协商的档位（PPS 或 PD），不会显示 MiPPS。
-
-如需保持严格的认证门控行为，删除该 drop-in：
-
-```sh
-sudo rm -r /etc/systemd/system/liuqin-mipps-auth.service.d
-sudo systemctl daemon-reload
-```
+命令行 `--allow-unverified-adapter` 仍保留为显式开关，要求 PD_PPS 合同并检查线缆：
+3 A 拒绝、5 A 允许，未导出身份时依赖源端执行线缆限制。默认服务不传入此开关，
+即使使用 5 A 线或适配器不应答 UVDM 也不放行。认证失败、提前退出和拔线会清除
+`pd_verifed`；成功结果只能在同一个 Type-C partner 连接内复用。
 
 ## 验证
 
