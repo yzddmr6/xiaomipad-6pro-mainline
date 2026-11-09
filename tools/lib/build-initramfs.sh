@@ -432,6 +432,7 @@ mkdir -p "$staging/bin" "$staging/sbin" "$staging/etc" "$staging/proc" \
 	"$staging/usr/sbin"
 cp "$busybox" "$staging/bin/busybox"
 cp "$source_dir/init" "$staging/init"
+install -m 0755 "$project_root/device/platform/liuqin-physical-platform" "$staging/bin/liuqin-physical-platform"
 cp "$source_dir/etc/issue" "$staging/etc/issue"
 cp "$source_dir/etc/mdev.conf" "$staging/etc/mdev.conf"
 chmod 0644 "$staging/etc/mdev.conf"
@@ -560,7 +561,7 @@ fi
 # dispatches applets it cannot find in PATH. That is a property of one vendor's
 # build, not of BusyBox, and nothing outside `sh` gets it -- so link every applet
 # the init script names.
-for applet in basename blockdev cat chmod chroot cp cttyhack cut dmesg findfs \
+for applet in awk grep od tr basename blockdev cat chmod chroot cp cttyhack cut dmesg findfs \
 	hostname ip kill killall ln losetup ls mkdir mount poweroff readlink reboot \
 	setsid sh sha256sum sleep stat switch_root sync telnetd udhcpd umount; do
 	ln -s busybox "$staging/bin/$applet"

@@ -227,6 +227,7 @@ PY
 		"$guard"
 	grep -qx 'marker=/etc/liuqin-native-root' "$guard" ||
 		die 'storage guard native marker rewrite did not land'
+	install -D -m 0755 "$project_root/device/platform/liuqin-physical-platform" "$root/usr/local/libexec/liuqin-physical-platform"
 	# Compiled helpers, same deterministic flags as the device-layer builder.
 	mkdir -p "$root/usr/local/libexec"
 	LC_ALL=C SOURCE_DATE_EPOCH=0 "$power_key_cc" \
@@ -298,6 +299,10 @@ PY
 		printf '\tif command -v dconf >/dev/null; then dconf update || :; fi\n'
 		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
 		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
+		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
+		printf '\tsystemctl enable liuqin-physical-platform.service\n'
+		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
+		printf '\tprintf "CHASSIS=tablet\\n" >>/etc/machine-info\n'
 		printf 'fi\n'
 	} >"$root/DEBIAN/postinst"
 	cp "$work/$pkg.preinst" "$root/DEBIAN/preinst"

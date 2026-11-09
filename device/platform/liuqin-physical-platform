@@ -1,0 +1,60 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# Adapted from liuqin-physical-platform (derived from erhai-physical-platform).
+# Establish physical-tablet userspace policy before systemd caches VM identity.
+# The kernel OF tree and raw firmware FDT remain intact.
+set -eu
+
+if [ "${1:-}" = --verify ]; then
+	status=0
+	found=$(systemd-detect-virt --vm) || status=$?
+	[ "$found" = none ] && [ "$status" = 1 ] || {
+		echo "physical platform: VM detection '$found' (rc=$status)" >&2
+		exit 1
+	}
+	manager=$(systemctl show -p Virtualization --value)
+	[ -z "$manager" ] || {
+		echo "physical platform: PID1 cached '$manager'" >&2
+		exit 1
+	}
+	# hostname1 activates after sysinit; asking it from the sysinit verifier
+	# would deadlock its activation. Check the same configuration early,
+	# and query hostname1 as well when --verify is run on the booted system.
+	chassis=$(sed -n 's/^CHASSIS=//p' /etc/machine-info)
+	if systemctl is-active --quiet sysinit.target; then
+		chassis=$(hostnamectl chassis) || chassis=unknown
+	fi
+	[ "$chassis" = tablet ] || { echo "physical platform: chassis=$chassis" >&2; exit 1; }
+	echo "LIUQIN_PHYSICAL_PLATFORM_VERIFIED: fresh detector=none PID1=none chassis=tablet"
+	exit 0
+fi
+
+sysroot=${1:-/sys}
+case "$sysroot" in /*) ;; *) echo 'expected an absolute sysfs path' >&2; exit 2;; esac
+base=$sysroot/firmware/devicetree/base
+hyper=$base/hypervisor
+# These are liuqin's observed ABL live-DT identities, not the source DTS.
+[ "$(tr '\0' '\n' <"$base/model")" = 'Liuqin based on Qualcomm Technologies, Inc SM8475' ]
+[ "$(tr '\0' ' ' <"$base/compatible")" = 'qcom,cape-mtp qcom,cape qcom,mtp ' ]
+# ABL does not export chassis-type on this board; machine-info supplies it.
+
+if awk -v target="$hyper" '$1=="liuqin-physical-platform" && $2==target && $3=="tmpfs" {found=1} END {exit !found}' /proc/self/mounts; then
+	exit 0
+fi
+[ -d "$hyper" ] || exit 0
+tr '\0' '\n' <"$hyper/compatible" | grep -qx qcom,gunyah-hypervisor
+# Read from liuqin live DT (2026-08-28 capture): HLOS VMID = 3.
+# Read and check it again at boot; never hide a secondary guest identity.
+[ "$(od -An -tx1 "$hyper/qcom,gunyah-vm/qcom,vmid" | tr -d ' \n')" = 00000003 ]
+for device in "$sysroot"/bus/platform/devices/*; do
+	[ -e "$device/driver" ] || continue
+	node=$(readlink -f "$device/of_node") || continue
+	case "$node" in
+		"$hyper"|"$hyper"/*)
+			echo "physical platform: $device has a bound Gunyah driver; policy needs review" >&2
+			exit 1
+			;;
+	esac
+done
+mount -t tmpfs -o ro,nosuid,nodev,noexec,size=4k,mode=0555 liuqin-physical-platform "$hyper"
+echo 'LIUQIN_PHYSICAL_PLATFORM_APPLIED: unused Gunyah HLOS export isolated before PID1'

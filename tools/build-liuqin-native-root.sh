@@ -201,11 +201,7 @@ END {
 	link_unit multi-user.target.wants liuqin-slpi.service
 	link_unit multi-user.target.wants liuqin-power-keyd.service
 	link_unit graphical.target.wants liuqin-backlight-default.service
-	# liuqin-hide-gunyah-node.service ships in the deb but stays unwired:
-	# the detect-virt containment is deferred to a later iteration (S2-16,
-	# user decision 2026-09-12).  Wire it with
-	#   link_unit sysinit.target.wants liuqin-hide-gunyah-node.service
-	# when that iteration lands.
+	link_unit sysinit.target.wants liuqin-physical-platform.service
 	# The distro default.target already resolves to graphical.target through
 	# /usr/lib; state it in /etc so a distro default change can never silently
 	# drop the installed system to multi-user.

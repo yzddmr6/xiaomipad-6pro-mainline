@@ -58,3 +58,5 @@ jobs:
           sudo python3 tests/sensor-startup.py
       - name: MiPPS connection and authentication policy
         run: python3 tests/mipps-role-first.py
+      - name: Physical platform policy
+        run: python3 tests/physical-platform.py

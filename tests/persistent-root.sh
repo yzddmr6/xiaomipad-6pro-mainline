@@ -15,6 +15,11 @@ fail() { printf 'test-liuqin-persistent-root: %s\n' "$*" >&2; exit 1; }
 
 make_fake_commands() {
 	mkdir -p "$test_root/bin"
+	cat >"$test_root/bin/liuqin-physical-platform" <<'EOF'
+#!/bin/sh
+printf 'physical-platform %s\n' "$*" >>"$TEST_COMMAND_LOG"
+exit "${TEST_PLATFORM_FAIL:-0}"
+EOF
 	cat >"$test_root/bin/findfs" <<'EOF'
 #!/bin/sh
 case $1 in
@@ -1280,6 +1285,15 @@ native_reset_fixture; TEST_MUTATE_NATIVE_ON_CHROOT=1 TEST_MUTATE_NATIVE=file-sta
 
 # The native handoff execs systemd, profile-selected like GNOME.
 native_reset_fixture; TEST_STORAGE_PHASE=switch; export TEST_STORAGE_PHASE; gnome_expect_switch_root_returned_fail_closed native-switch-root-returned
+python3 - "$command_log" <<'PYTEST'
+import sys
+s = open(sys.argv[1]).read()
+assert s.index('physical-platform /sys') < s.index('mount4 -o move /proc')
+PYTEST
+native_reset_fixture; TEST_STORAGE_PHASE=switch TEST_PLATFORM_FAIL=1
+export TEST_STORAGE_PHASE TEST_PLATFORM_FAIL
+gnome_expect_rejected_safe physical-platform-refused
+unset TEST_PLATFORM_FAIL
 
 grep -q '^storage_marker=etc/liuqin-persistent-root$' "$init" || fail "marker path changed"
 grep -q '^storage_marker_sha256=0d354b25a425dcc17da2c7a8bbdaae09274cecdb1f137c70630ebe5634fa9a48$' \

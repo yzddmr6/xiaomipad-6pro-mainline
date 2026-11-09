@@ -940,6 +940,14 @@ storage_switch_persistent_root() {
 		"$storage_newroot/dev"
 	log "persistent root accepted: switching to LIUQIN_ROOT"
 
+	# This sysfs instance, including the covered OF export, moves into the
+	# real root. PID1 must see it before its first virtualization query.
+	if ! liuqin-physical-platform /sys; then
+		log "persistent root physical-platform policy failed"
+		storage_abort || ufs_safe=false
+		return 1
+	fi
+
 	storage_moved=
 	storage_move_failed=false
 	for storage_mountpoint in /proc /sys /dev; do
