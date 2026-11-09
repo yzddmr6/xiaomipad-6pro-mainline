@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# One OpenSSH server per connection accepted by liuqin-devmode-ssh.socket,
+# shaped like OpenSSH's own sshd@.service, with the developer mode's
+# configuration.  Turning developer mode off ends these sessions.
+[Unit]
+Description=Liuqin developer mode SSH session
+After=nss-user-lookup.target auditd.service
+PartOf=liuqin-devmode.service
+
+[Service]
+ExecStart=-/usr/sbin/sshd -i -f /usr/lib/liuqin/devmode/sshd_config
+StandardInput=socket
+RuntimeDirectory=sshd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes

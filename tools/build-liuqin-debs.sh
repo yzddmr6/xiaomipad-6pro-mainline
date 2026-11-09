@@ -300,6 +300,8 @@ PY
 		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
 		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
 		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
+		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
+		printf '\trm -f /etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service /etc/systemd/system/liuqin-gnome-usb-rescue.service\n'
 		printf '\tsystemctl enable liuqin-physical-platform.service\n'
 		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
 		printf '\tprintf "CHASSIS=tablet\\n" >>/etc/machine-info\n'
@@ -308,7 +310,7 @@ PY
 	cp "$work/$pkg.preinst" "$root/DEBIAN/preinst"
 	cp "$work/$pkg.postrm" "$root/DEBIAN/postrm"
 	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0)' \
-		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, rescue shell, power panel'
+		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, key-only USB maintenance, power panel'
 }
 
 build_sensors() {

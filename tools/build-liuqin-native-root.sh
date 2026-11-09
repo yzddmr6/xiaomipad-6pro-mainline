@@ -113,7 +113,9 @@ apt-get -c /tmp/liuqin-apt.conf update >/dev/null
 # tells users to run.
 apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libprotobuf-c1 \
 	gnome-snapshot libcamera-ipa gstreamer1.0-libcamera gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-	libcamera-tools v4l-utils >/dev/null
+	libcamera-tools v4l-utils openssh-server >/dev/null
+# Only the explicit USB developer-mode socket should listen in a fresh image.
+systemctl disable ssh.service ssh.socket
 dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	/tmp/liuqin-debs/liuqin-device-support_*_arm64.deb \
 	/tmp/liuqin-debs/liuqin-sensors_*_arm64.deb \
@@ -196,7 +198,6 @@ END {
 		[ "$(readlink "$root/etc/systemd/system/$1/$2")" = "../$2" ] || die "unit link failed: $1/$2"
 	}
 	link_unit basic.target.requires liuqin-gnome-storage-guard.service
-	link_unit multi-user.target.wants liuqin-gnome-usb-rescue.service
 	link_unit multi-user.target.wants liuqin-mipps-battery-auth.service
 	link_unit multi-user.target.wants liuqin-slpi.service
 	link_unit multi-user.target.wants liuqin-power-keyd.service
@@ -245,10 +246,10 @@ END {
 		/usr/lib/systemd/systemd /usr/sbin/gdm3 /usr/bin/gnome-shell \
 		/usr/bin/hexagonrpcd \
 		/usr/local/sbin/liuqin-slpi \
-		/usr/local/bin/busybox /usr/local/bin/liuqin-shell \
+		/usr/local/bin/busybox /usr/sbin/liuqin-devmode \
 		/usr/libexec/iio-sensor-proxy \
 		/usr/local/sbin/liuqin-gnome-storage-guard \
-		/usr/local/sbin/liuqin-gnome-usb-rescue \
+		/usr/libexec/liuqin/devmode-gadget \
 		/usr/local/libexec/liuqin-power-keyd \
 		/usr/local/libexec/liuqin-power-key-action \
 		/usr/local/sbin/liuqin-bt-public-addr \
@@ -261,7 +262,7 @@ END {
 		/etc/liuqin-native-root \
 		/etc/dconf/db/local.d/locks/00-liuqin-power \
 		/etc/systemd/system/liuqin-gnome-storage-guard.service \
-		/etc/systemd/system/liuqin-gnome-usb-rescue.service \
+		/usr/lib/systemd/system/liuqin-devmode.service \
 		/etc/systemd/system/liuqin-power-keyd.service \
 		/etc/systemd/system/bluetooth.service.d/20-liuqin-public-address.conf \
 		/etc/systemd/system/liuqin-bt-preconfigure.service \

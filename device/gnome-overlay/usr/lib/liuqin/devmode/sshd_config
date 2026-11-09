@@ -1,0 +1,14 @@
+# Explicit maintenance access, including before first-user setup.
+# The socket binds only the USB address; every login requires a provisioned key.
+PermitRootLogin prohibit-password
+AllowUsers root
+PubkeyAuthentication yes
+AuthenticationMethods publickey
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitEmptyPasswords no
+AuthorizedKeysFile /etc/liuqin/devmode/authorized_keys
+UsePAM yes
+PrintMotd no
+DisableForwarding yes
+Subsystem sftp internal-sftp

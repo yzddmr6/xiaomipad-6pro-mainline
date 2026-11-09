@@ -1,0 +1,2 @@
+SUBSYSTEM=="udc", ACTION=="add", TAG+="systemd", ENV{SYSTEMD_WANTS}+="usb-gadget.target"
+SUBSYSTEM=="net", ATTR{address}=="02:00:00:66:00:02", ENV{NM_UNMANAGED}="1"

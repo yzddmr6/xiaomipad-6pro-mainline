@@ -62,3 +62,7 @@ jobs:
         run: python3 tests/physical-platform.py
       - name: UFS readiness
         run: sh tests/ufs-ready.sh
+      - name: Key-only USB developer mode
+        run: |
+          sudo apt-get install --no-install-recommends -y openssh-server
+          sudo python3 tests/devmode.py

@@ -126,6 +126,10 @@ block_digest() {
 }
 
 case $verb in
+find)
+	[ "$#" = 1 ] || die "usage: find PARTNAME"
+	find_part "$1"; printf "\n"
+	;;
 disk)
 	[ "$#" = 1 ] || die 'usage: disk PARTNAME'
 	part=$(find_part "$1")

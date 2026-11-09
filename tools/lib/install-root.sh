@@ -201,6 +201,9 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'exit 130' HUP INT TERM
+if [ "$rescue" = ENABLE-USB-RESCUE ]; then
+ [ -s /run/liuqin-devmode/authorized_keys ] || die 'developer mode requires a host public key before formatting'
+fi
 # A default /run tmpfs is too small for some complete desktop archives.
 mkdir -p /mnt/install-download /run/persist /mnt/install /mnt/install-home
 mount -t tmpfs -o "size=$(( $4 + 16777216 ))" tmpfs /mnt/install-download
@@ -229,7 +232,7 @@ mkdir /mnt/install/native-root
 	--numeric-owner --same-owner --same-permissions --acls --xattrs --xattrs-include='*' --warning=no-timestamp
 PERSIST_SRC=/run/persist sh /usr/lib/liuqin/provision.sh /mnt/install/native-root
 if [ "$rescue" = ENABLE-USB-RESCUE ]; then
-	touch /mnt/install/native-root/etc/liuqin-rescue-enabled
+	sh /usr/lib/liuqin/install-devmode.sh install /mnt/install/native-root
 fi
 # /home is a separate partition so that a later system reinstall can keep it.
 # The label is the identity here too; nofail keeps a missing or unreadable

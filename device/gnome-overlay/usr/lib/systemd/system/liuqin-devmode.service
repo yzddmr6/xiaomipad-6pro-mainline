@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Developer mode: SSH login over the USB cable.  Off by default; the
+# administrator turns it on with `liuqin-devmode on`, which is
+# `systemctl enable --now liuqin-devmode.service`, and the enablement state is
+# the only persisted switch.  The unit is wanted by usb-gadget.target, which
+# udev starts once the USB device controller exists.
+[Unit]
+Description=Liuqin developer mode (SSH over USB)
+Wants=systemd-networkd.service liuqin-devmode-ssh.socket
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# sshd -t needs the privilege separation directory, as in ssh.service.
+RuntimeDirectory=sshd
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=yes
+ExecStartPre=/usr/sbin/liuqin-devmode check
+ExecStart=/usr/libexec/liuqin/devmode-gadget start
+ExecStop=/usr/libexec/liuqin/devmode-gadget stop
+
+[Install]
+WantedBy=usb-gadget.target

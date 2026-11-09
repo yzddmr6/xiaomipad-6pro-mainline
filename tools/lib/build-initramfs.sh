@@ -574,6 +574,7 @@ if [ -n "${INSTALLER_RUNTIME:-}" ]; then
 		{ echo 'installer runtime is incomplete' >&2; exit 1; }
 	cp -a "$INSTALLER_RUNTIME"/. "$staging"/
 	mkdir -p "$staging/usr/lib/liuqin"
+	cp "$project_root/tools/lib/install-devmode.sh" "$staging/usr/lib/liuqin/install-devmode.sh"
 	cp "$project_root/tools/lib/install-root.sh" "$staging/usr/lib/liuqin/install-root.sh"
 	cp "$project_root/tools/lib/install-layout.sh" "$staging/usr/lib/liuqin/install-layout.sh"
 	cp "$project_root/tools/lib/install-switch-store.sh" "$staging/usr/lib/liuqin/install-switch-store.sh"

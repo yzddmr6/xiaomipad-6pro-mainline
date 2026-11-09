@@ -217,7 +217,8 @@ def parse_arguments(argv=None):
     parser.add_argument('--yes', action='store_true', help='Skip the interactive data-erasure confirmation')
     parser.add_argument('--allow-unverified', action='store_true', help='Explicitly test an offline-only bundle')
     parser.add_argument('--enable-rescue', action='store_true',
-                        help='Enable unauthenticated root rescue access after installation (trusted USB only)')
+                        help='Enable USB developer mode and provision the host SSH public key')
+    parser.add_argument('--ssh-public-key', type=Path, help='Public key for --enable-rescue (default: host ed25519 key)')
     return parser, parser.parse_args(argv)
 
 
@@ -552,6 +553,19 @@ def main(argv=None):
                 'this partition table is neither the factory layout nor one this installer created;'
                 ' refusing to change it —— 分区表无法识别，拒绝修改。'
                 ' 可用 --restore-partition-table 恢复出厂分区表')
+        if state == 'split':
+            old_root = device_layout('find', layout.ROOT_NAME).strip()
+            prior = remote(shlex.join(['sh', '/usr/lib/liuqin/install-devmode.sh',
+                                      'inspect', old_root])).decode().strip()
+            if prior == 'enabled':
+                args.enable_rescue = True
+                print('Migrating previous maintenance access to key-only USB developer mode.')
+        if args.enable_rescue:
+            key = developer_public_key(args.ssh_public_key)
+            stage_blob(remote, 'devmode-key', key)
+            staged = LAYOUT_WORK + '/liuqin-gpt-devmode-key.b64'
+            remote('umask 077; mkdir -p /run/liuqin-devmode; /bin/busybox base64 -d ' +
+                   shlex.quote(staged) + ' >>/run/liuqin-devmode/authorized_keys && rm -f ' + shlex.quote(staged))
         if state == 'stock' and args.keep_home:
             raise RuntimeError(
                 'the tablet still carries the factory partition table, so there is no linux_home'
@@ -616,6 +630,28 @@ def main(argv=None):
             server.server_close()
         if scratch:
             scratch.cleanup()
+
+
+def developer_public_key(path=None):
+    """Select or create a host key; only the public half ever crosses USB."""
+    if path is None:
+        default = Path.home() / '.ssh/id_ed25519.pub'
+        path = default if default.is_file() else Path.home() / '.ssh/liuqin-devmode.pub'
+        if not path.exists():
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            private = path.with_suffix('')
+            if private.exists():
+                public = subprocess.check_output(['ssh-keygen', '-y', '-f', str(private)])
+                path.write_bytes(public)
+            else:
+                subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '',
+                                '-C', 'liuqin developer mode', '-f', str(private)], check=True)
+    data = Path(path).read_bytes()
+    if (len(data) > 16384 or len(data.splitlines()) != 1 or
+            not re.fullmatch(rb'(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/]+={0,3}(?: [^\r\n]*)?\n?', data)):
+        raise ValueError('expected one SSH public key')
+    subprocess.run(['ssh-keygen', '-l', '-f', str(path)], check=True, stdout=subprocess.DEVNULL)
+    return data.rstrip() + b'\n'
 
 
 def boot_slots(mode):

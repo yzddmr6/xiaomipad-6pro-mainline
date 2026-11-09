@@ -682,7 +682,7 @@ gnome_r03_contract_only() {
 # basic.target.  The fixture mirrors the pin list and the topology gates.
 native_contract_paths='/etc/liuqin-native-root /etc/dconf/db/local.d/locks/00-liuqin-power
 /etc/systemd/system/liuqin-gnome-storage-guard.service
-/etc/systemd/system/liuqin-gnome-usb-rescue.service
+/usr/lib/systemd/system/liuqin-devmode.service
 /etc/systemd/system/liuqin-power-keyd.service
 /etc/systemd/system/liuqin-power-keyd.service.d/20-liuqin-session-runtime.conf
 /etc/systemd/system/liuqin-backlight-default.service
@@ -702,11 +702,11 @@ native_contract_paths='/etc/liuqin-native-root /etc/dconf/db/local.d/locks/00-li
 /usr/lib/firmware/updates/qcom/gmu_gen70000.bin
 /usr/bin/hexagonrpcd
 /usr/libexec/iio-sensor-proxy /usr/libexec/liuqin-ssc-sample-gate
-/usr/local/bin/busybox /usr/local/bin/liuqin-shell
+/usr/local/bin/busybox /usr/sbin/liuqin-devmode
 /usr/local/libexec/liuqin-power-keyd /usr/local/libexec/liuqin-power-key-action
 /usr/local/libexec/liuqin-power-menu
 /usr/local/sbin/liuqin-gnome-storage-guard
-/usr/local/sbin/liuqin-gnome-usb-rescue
+/usr/libexec/liuqin/devmode-gadget
 /usr/local/sbin/liuqin-snap-root-admission
 /usr/local/sbin/liuqin-bt-public-addr /usr/local/sbin/liuqin-wlan-mac
 /usr/share/liuqin/kernel.release /usr/share/liuqin/kernel-modules.manifest
@@ -716,6 +716,7 @@ native_contract_paths='/etc/liuqin-native-root /etc/dconf/db/local.d/locks/00-li
 
 make_native_tree() {
 	tree=$1
+	mkdir -p "$tree/usr/libexec/liuqin" "$tree/usr/lib/systemd/system"
 	mkdir -p "$tree/etc/dconf/db/local.d/locks" "$tree/etc/udev/rules.d" \
 		"$tree/etc/systemd/system/basic.target.requires" \
 		"$tree/etc/systemd/system/multi-user.target.wants" \
@@ -737,9 +738,9 @@ make_native_tree() {
 	printf 'hexagonrpcd\n' >"$tree/usr/bin/hexagonrpcd"
 	printf 'gdm3\n' >"$tree/usr/sbin/gdm3"
 	printf 'busybox\n' >"$tree/usr/local/bin/busybox"
-	printf 'liuqin-shell\n' >"$tree/usr/local/bin/liuqin-shell"
+	printf 'liuqin-shell\n' >"$tree/usr/sbin/liuqin-devmode"
 	printf 'storage-guard\n' >"$tree/usr/local/sbin/liuqin-gnome-storage-guard"
-	printf 'usb-rescue\n' >"$tree/usr/local/sbin/liuqin-gnome-usb-rescue"
+	printf 'usb-rescue\n' >"$tree/usr/libexec/liuqin/devmode-gadget"
 	printf 'power-keyd\n' >"$tree/usr/local/libexec/liuqin-power-keyd"
 	printf 'power-key-action\n' >"$tree/usr/local/libexec/liuqin-power-key-action"
 	printf 'power-menu\n' >"$tree/usr/local/libexec/liuqin-power-menu"
@@ -763,8 +764,8 @@ make_native_tree() {
 		>"$tree/etc/dconf/db/local.d/locks/00-liuqin-power"
 	printf '[Service]\nExecStart=/usr/local/sbin/liuqin-gnome-storage-guard\n' \
 		>"$tree/etc/systemd/system/liuqin-gnome-storage-guard.service"
-	printf '[Service]\nExecStart=/usr/local/sbin/liuqin-gnome-usb-rescue\n' \
-		>"$tree/etc/systemd/system/liuqin-gnome-usb-rescue.service"
+	printf '[Service]\nExecStart=/usr/libexec/liuqin/devmode-gadget\n' \
+		>"$tree/usr/lib/systemd/system/liuqin-devmode.service"
 	printf '[Service]\nExecStart=/usr/local/libexec/liuqin-backlight-default\n' \
 		>"$tree/etc/systemd/system/liuqin-backlight-default.service"
 	printf '[Unit]\nRequires=liuqin-bt-preconfigure.service\nAfter=liuqin-bt-preconfigure.service\n' \
@@ -788,9 +789,9 @@ make_native_tree() {
 	chmod 0755 "$tree/usr/lib/systemd/systemd" "$tree/usr/bin/gnome-shell" \
 		"$tree/usr/bin/hexagonrpcd" \
 		"$tree/usr/sbin/gdm3" "$tree/usr/local/bin/busybox" \
-		"$tree/usr/local/bin/liuqin-shell" \
+		"$tree/usr/sbin/liuqin-devmode" \
 		"$tree/usr/local/sbin/liuqin-gnome-storage-guard" \
-		"$tree/usr/local/sbin/liuqin-gnome-usb-rescue" \
+		"$tree/usr/libexec/liuqin/devmode-gadget" \
 		"$tree/usr/local/libexec/liuqin-power-keyd" \
 		"$tree/usr/local/libexec/liuqin-power-key-action" \
 		"$tree/usr/local/libexec/liuqin-power-menu" \
@@ -802,7 +803,7 @@ make_native_tree() {
 	chmod 0644 "$tree/etc/liuqin-native-root" \
 		"$tree/etc/dconf/db/local.d/locks/00-liuqin-power" \
 		"$tree/etc/systemd/system/liuqin-gnome-storage-guard.service" \
-		"$tree/etc/systemd/system/liuqin-gnome-usb-rescue.service" \
+		"$tree/usr/lib/systemd/system/liuqin-devmode.service" \
 		"$tree/etc/systemd/system/liuqin-backlight-default.service" \
 		"$tree/etc/systemd/system/liuqin-power-keyd.service" \
 		"$tree/etc/systemd/system/liuqin-power-keyd.service.d/20-liuqin-session-runtime.conf" \
@@ -827,8 +828,6 @@ make_native_tree() {
 		"$tree/usr/share/liuqin/power/gschemas.compiled"
 	ln -s ../liuqin-gnome-storage-guard.service \
 		"$tree/etc/systemd/system/basic.target.requires/liuqin-gnome-storage-guard.service"
-	ln -s ../liuqin-gnome-usb-rescue.service \
-		"$tree/etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service"
 	ln -s ../liuqin-power-keyd.service \
 		"$tree/etc/systemd/system/multi-user.target.wants/liuqin-power-keyd.service"
 	ln -s ../liuqin-backlight-default.service \
@@ -1271,7 +1270,7 @@ native_reset_fixture; rm "$probe/native-root/usr/share/liuqin/kernel.release"; e
 native_reset_fixture; rm "$probe/native-root/etc/systemd/system/basic.target.requires/liuqin-gnome-storage-guard.service"; expect_rejected_before_open native-guard-enable-missing
 native_reset_fixture; ln -s ../liuqin-snap-root-admission.service "$probe/native-root/etc/systemd/system/basic.target.requires/liuqin-snap-root-admission.service"; expect_rejected_before_open native-snap-must-not-gate
 native_reset_fixture; rm "$probe/native-root/etc/systemd/system/graphical.target.wants/liuqin-backlight-default.service"; expect_rejected_before_open native-backlight-enable-missing
-native_reset_fixture; rm "$probe/native-root/etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service"; expect_rejected_before_open native-rescue-enable-missing
+native_reset_fixture; native_expect_success native-devmode-off-by-default
 native_reset_fixture; rm "$probe/native-root/etc/systemd/system/multi-user.target.wants/liuqin-power-keyd.service"; expect_rejected_before_open native-power-key-enable-missing
 native_reset_fixture; rm "$probe/native-root/usr/sbin/init"; ln -s /bin/sh "$probe/native-root/usr/sbin/init"; expect_rejected_before_open native-init-link
 native_reset_fixture; rm "$probe/native-root/etc/systemd/system/default.target"; ln -s /usr/lib/systemd/system/multi-user.target "$probe/native-root/etc/systemd/system/default.target"; expect_rejected_before_open native-default-target
@@ -1439,7 +1438,7 @@ INSTALLER_BB
 	chmod 0755 "$installer_case/bb"
 	{
 		printf 'BB=%s\n' "$installer_case/bb"
-		printf 'ufs_safe=true\n'
+		printf 'ufs_safe=true\nstorage_mode=${TEST_CHANNEL_MODE:-readonly}\n'
 		printf 'storage_dev_root=%s\n' "$installer_case/dev"
 		printf 'storage_sys_block=%s\n' "$installer_case/sys"
 		printf 'storage_installer_marker=%s\n' "$installer_case/etc/liuqin-installer"
@@ -1528,3 +1527,10 @@ installer_expect_refused rw-required persist boot_a boot_b persist
 installer_expect_refused rw-optional linux_root boot_a boot_b persist linux_root
 
 printf '%s\n' 'liuqin persistent-root fail-closed tests: PASS'
+
+TEST_CHANNEL_MODE=persistent; export TEST_CHANNEL_MODE
+if installer_run persistent-no-shell '' boot_a boot_b persist; then
+ fail 'persistent boot exposed installer shell'
+fi
+! grep -q '^telnetd$' "$installer_root/persistent-no-shell/out" || fail 'persistent telnet opened'
+unset TEST_CHANNEL_MODE

@@ -1,8 +1,0 @@
-#!/bin/bash
-# SPDX-License-Identifier: MIT
-export HOME=/root
-export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export TERM=${TERM:-linux}
-cd "$HOME" 2>/dev/null || cd /
-[ -r /etc/motd ] && cat /etc/motd
-exec /bin/bash "$@"
