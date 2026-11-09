@@ -995,9 +995,59 @@ storage_switch_persistent_root() {
 	exec "$BB" switch_root "$storage_newroot" "$storage_init"
 }
 
+# Wait for all six observed UFS LUNs and their GPT tails, not a fixed delay.
+# A partition scan creates nodes in table order. The immutable LUN tails and
+# the selected data-layout tail must be present before taking the RO snapshot.
+storage_ufs_ready() {
+	for storage_lun in sda sdb sdc sdd sde sdf; do
+		storage_path_is_block "$storage_dev_root/$storage_lun" || return 1
+	done
+	for storage_tail in sda34 sdb6 sdc6 sdd6 sde77 sdf7; do
+		storage_path_is_block "$storage_dev_root/$storage_tail" || return 1
+		[ -f "$storage_sys_block/$storage_tail/partition" ] || return 1
+	done
+	# Both stock/legacy userdata and the installed split layout are supported.
+	if storage_path_is_block "$storage_dev_root/sda37"; then
+		"$BB" grep -qx PARTNAME=linux_home "$storage_sys_block/sda37/uevent" || return 1
+		storage_path_is_block "$storage_dev_root/sda36" || return 1
+		"$BB" grep -qx PARTNAME=linux_root "$storage_sys_block/sda36/uevent" || return 1
+	else
+		storage_path_is_block "$storage_dev_root/sda35" || return 1
+		"$BB" grep -qx PARTNAME=userdata "$storage_sys_block/sda35/uevent" || return 1
+	fi
+	# sysfs may be ahead of mdev. Never stop with a known block node missing.
+	for storage_info in "$storage_sys_block"/sd*/dev; do
+		[ -f "$storage_info" ] || continue
+		storage_node=${storage_info%/dev}; storage_node=${storage_node##*/}
+		storage_path_is_block "$storage_dev_root/$storage_node" || return 1
+	done
+}
+
+storage_wait_ufs() {
+	storage_waited=0
+	while :; do
+		"$BB" mdev -s
+		# Seal new arrivals on every scan, including the final timeout scan.
+		for storage_node in "$storage_dev_root"/sd*; do
+			storage_path_is_block "$storage_node" || continue
+			"$BB" blockdev --setro "$storage_node" || return 1
+		done
+		if storage_ufs_ready; then
+			log "UFS LUNs and partitions ready after $storage_waited polls"
+			return 0
+		fi
+		[ "$storage_waited" -lt 100 ] || { log "UFS readiness timed out"; return 1; }
+		"$BB" sleep 0.1
+		storage_waited=$((storage_waited + 1))
+	done
+}
+
 # The mutation test enters only the storage gate.  It uses an isolated fake
 # /dev, sysfs and command PATH, and never reaches the real init sequence.
 if [ "${LIUQIN_INIT_STORAGE_TEST_ONLY:-0}" = 1 ]; then
+	if [ "${LIUQIN_INIT_STORAGE_TEST_PHASE:-}" = wait-ufs ]; then
+		storage_wait_ufs; exit $?
+	fi
 	storage_mode=persistent
 	if storage_prepare_persistent_root; then
 		case ${LIUQIN_INIT_STORAGE_TEST_PHASE:-prepare} in
@@ -1025,19 +1075,9 @@ hostname liuqin-firstboot
 [ ! -w /proc/sys/kernel/hotplug ] || echo /sbin/mdev >/proc/sys/kernel/hotplug
 mdev -s
 
-log "waiting for SCSI/UFS block devices and marking them read-only"
+log "waiting for the expected UFS LUNs and partitions"
 found_block=false
-for attempt in 1 2 3 4 5 6 7 8 9 10; do
-	mdev -s
-	for blockdev_path in /dev/sd*; do
-		[ -b "$blockdev_path" ] || continue
-		found_block=true
-		if ! blockdev --setro "$blockdev_path"; then
-			log "warning: failed to mark read-only: $blockdev_path"
-		fi
-	done
-	sleep 1
-done
+storage_wait_ufs && found_block=true
 
 ufs_safe=false
 if [ "$found_block" != true ]; then

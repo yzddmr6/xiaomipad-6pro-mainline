@@ -60,3 +60,5 @@ jobs:
         run: python3 tests/mipps-role-first.py
       - name: Physical platform policy
         run: python3 tests/physical-platform.py
+      - name: UFS readiness
+        run: sh tests/ufs-ready.sh
