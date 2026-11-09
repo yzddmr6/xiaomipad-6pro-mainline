@@ -49,7 +49,7 @@ At a glance; see the tables for the scope of each feature:
 - ✅ CPU · ✅ GPU acceleration · ✅ Internal storage · ✅ 120 Hz display · ✅ Touch · ✅ Manual brightness
 - ✅ Magnetic keyboard and touchpad · ✅ Native fingerprint login · ✅ Auto-rotation · ✅ Power and volume keys
 - ✅ Wi-Fi · ✅ Bluetooth · ✅ USB networking and developer mode · ✅ USB OTG · ✅ DP output
-- ✅ Four speakers · ✅ Single-microphone recording · ✅ H.264 hardware decoding · 🟡 Rear camera · ✅ Battery reporting and charging · ⟦DRAFT:suspend⟧
+- ✅ Four speakers · ✅ Single-microphone recording · ✅ H.264 hardware decoding · 🟡 Rear camera · ✅ Battery reporting and charging · 🟡 Standby
 
 ### Platform, Display and Input
 
@@ -63,7 +63,7 @@ At a glance; see the tables for the scope of each feature:
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Firmware selected automatically by panel module; taps, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys and touchpad; typing resumes after reattaching |
 | Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Enrol in Settings → Users, then unlock the screen or log in at boot; currently the first account (UID 1000) with one finger, see the [fingerprint guide](docs/FINGERPRINT.en.md) |
-| Cover open/close | GPIO / SW_LID | ⟦DRAFT:lid⟧ |
+| Cover open/close | GPIO / SW_LID | ✅ Working | Closing the cover suspends the tablet according to the power settings |
 
 Not yet supported: stylus.
 
@@ -100,7 +100,7 @@ Not yet supported: front camera, gyroscope and magnetometer, ambient light senso
 | Fast charging | Xiaomi charger authentication | 🟡 Partial | Fast charging for chargers that pass Xiaomi authentication; other USB PD chargers charge at standard PD levels (9 V / 2 A). See [Fast charging](docs/FASTCHARGE.en.md) |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; the charge level can drop under heavy load |
 | Charging while powered off | Boot-stage charging hold | 🟡 Partial | Keeps charging while off and plugged in, without a charging animation; press and hold the power key to boot |
-| Standby | suspend (deep) | ⟦DRAFT:suspend⟧ |
+| Standby | suspend-to-idle | 🟡 Partial | Stays asleep after suspending and resumes normally on a timer wake; standby power consumption is not optimised yet |
 
 Not yet supported: hibernation to disk, writing the hardware clock (the clock is set from the network after boot; when starting offline it continues from the last shutdown).
 
