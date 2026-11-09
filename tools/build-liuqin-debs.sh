@@ -23,7 +23,13 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out_dir=${OUT_DIR:-"$project_root/out/liuqin-debs"}
-version=${LIUQIN_DEB_VERSION:-0.1}
+# The release version of the device packages lives in VERSION and is bumped
+# with every release; LIUQIN_DEB_VERSION overrides it for test builds only.
+version=${LIUQIN_DEB_VERSION:-$(cat "$project_root/VERSION")}
+case $version in
+[0-9]*.[0-9]*.[0-9]*) ;;
+*) printf 'build-liuqin-debs: invalid package version: %s\n' "$version" >&2; exit 1 ;;
+esac
 maintainer='yzddmr6 <46088090+yzddmr6@users.noreply.github.com>'
 
 firmware_tree=${FIRMWARE_TREE:-"$project_root/device/firmware"}
