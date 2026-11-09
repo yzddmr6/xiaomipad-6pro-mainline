@@ -291,3 +291,25 @@ with tempfile.TemporaryDirectory(prefix='liuqin-layout-test-') as directory:
 if failures:
     sys.exit('layout test failures:\n' + '\n'.join('  ' + item for item in failures))
 print('PASS: partition layout engine; no device, no loop device, no evidence dump')
+
+# Geometry and preserved partitions must not be inferred merely from a tail name.
+import copy
+for mutation in ('missing-prefix','renamed-prefix','overlap','duplicate-number','out-of-bounds'):
+    disk=copy.deepcopy(layout.reference_stock_disk())
+    if mutation=='missing-prefix': del disk.partitions[2]
+    if mutation=='renamed-prefix': disk.partitions[3].name='foreign'
+    if mutation=='overlap': disk.partitions[3].first_sector=disk.partitions[2].first_sector
+    if mutation=='duplicate-number': disk.partitions[3].number=disk.partitions[2].number
+    if mutation=='out-of-bounds': disk.partitions[-1].last_sector=disk.total_sectors
+    assert layout.classify(disk)=='unknown', mutation
+for capacity in (128,512):
+    disk=copy.deepcopy(layout.reference_stock_disk())
+    disk.total_sectors=capacity*layout.GIB//disk.sector_size
+    disk.last_usable=disk.total_sectors-6
+    disk.partitions[-1].last_sector=disk.last_usable
+    # Change numbering without changing partition order or names.
+    for part in disk.partitions: part.number+=2
+    assert layout.classify(disk)=='stock'
+    plan=plan_for(disk,'linux-only')
+    assert plan.entry(layout.ROOT_NAME).number not in {p.number for p in disk.partitions}
+print('PASS: preserved partitions, overlap, duplicate numbers, bounds and capacity-independent numbering')

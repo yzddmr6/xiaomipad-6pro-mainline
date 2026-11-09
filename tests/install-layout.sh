@@ -62,6 +62,8 @@ set -u
 bb_command=$1
 shift
 printf 'bb %s %s\n' "$bb_command" "$*" >>"$TEST_COMMAND_LOG"
+if [ "$bb_command" = dd ] && [ "${TEST_WRITE_FAIL:-0}" = 1 ]; then exit 1; fi
+if [ "$bb_command" = dd ] && [ "${TEST_WRITE_SIGNAL:-0}" = 1 ]; then kill -TERM "$PPID"; exit 1; fi
 if [ "$bb_command" = blockdev ]; then
 	bb_flag=$1
 	bb_node=${2##*/}
@@ -225,6 +227,7 @@ run_env() {
 		TEST_COMMAND_LOG="$command_log" \
 		TEST_FAIL_SETRW="${TEST_FAIL_SETRW:-none}" \
 		TEST_SGDISK_STATUS="${TEST_SGDISK_STATUS:-0}" \
+		TEST_WRITE_FAIL="${TEST_WRITE_FAIL:-0}" TEST_WRITE_SIGNAL="${TEST_WRITE_SIGNAL:-0}" \
 		"$shell" $shell_argument "$@"
 }
 
@@ -567,3 +570,20 @@ output=$(run_env "$script" "$(cat "$case_root/boot_id")" 2>&1) || status=$?
 expect_die usage 'usage: install-layout.sh'
 
 printf '%s\n' 'liuqin install-layout execution tests: PASS'
+
+# Failure and signals after the write window opens always attempt full resealing.
+for failure in write signal partition-open; do
+ reset_fixture
+ case $failure in
+ write) TEST_WRITE_FAIL=1; export TEST_WRITE_FAIL;;
+ signal) TEST_WRITE_SIGNAL=1; export TEST_WRITE_SIGNAL;;
+ partition-open) TEST_FAIL_SETRW=sda35; export TEST_FAIL_SETRW;;
+ esac
+ run_verb wipe-head userdata 16777216
+ [ "$status" != 0 ] || fail "$failure: unexpectedly succeeded"
+ for node in sda sda1 sda3 sda35; do
+  [ "$(cat "$state/$node")" = 1 ] || fail "$failure: $node left writable"
+ done
+ unset TEST_WRITE_FAIL TEST_WRITE_SIGNAL TEST_FAIL_SETRW
+done
+printf '%s\n' 'PASS: write failure, signal and partial-open failure reseal storage'

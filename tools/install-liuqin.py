@@ -584,7 +584,6 @@ def main(argv=None):
             plan = layout.plan_layout(disk, args.layout, android, root)
             print(plan.table(), flush=True)
             confirm_plan(planned, plan)
-            apply_layout(device_layout, disk, plan, saved, args.layout)
         flashes = []
         if args.layout == 'dual':
             flashes = stock_images_to_flash(device_layout, {
@@ -607,6 +606,14 @@ def main(argv=None):
                                                       flash_sha256=digest))
             if not args.no_backup:
                 (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
+        # All layout arithmetic, image selection, padding, backup and factory
+        # checks must complete before the first persistent write.
+        remote(shlex.join(['sh', '/usr/lib/liuqin/install-preflight.sh', boot_id,
+                           str((bundle / 'rootfs.tar.gz').stat().st_size)]), 180)
+        print('Complete write plan: ' + ', '.join(entry['partition'] for _, entry in flashes) +
+              '; Ubuntu root/home; boot slots ' + ','.join(boot_slots(args.layout)), flush=True)
+        if state == 'stock':
+            apply_layout(device_layout, disk, plan, saved, args.layout)
         base = f'http://{args.host_address}:{server.server_port}'
         install = install_root_command(boot_id, base, bundle, manifest, args, rom_images)
         print('Installing Ubuntu into ' + layout.ROOT_NAME + '.', flush=True)
@@ -833,7 +840,7 @@ def restore_partition_table(remote, device_layout, directory, serial):
 
 
 def apply_layout(device_layout, before, plan, saved, mode):
-    """Wipe stale metadata, write the table once, verify it, restore on failure."""
+    """Wipe stale metadata, write the table once and verify; report manual recovery on failure."""
     userdata = before.by_name(layout.USERDATA_NAME)
     info = layout.parse_info(device_layout('info', layout.USERDATA_NAME))
     if info['first_sector'] != userdata.first_sector or info['name'] != layout.USERDATA_NAME:
@@ -842,12 +849,12 @@ def apply_layout(device_layout, before, plan, saved, mode):
     # stale file-based-encryption keys are gone.  Zeroing the head of userdata
     # also removes the LIUQIN_ROOT superblock of the old whole-disk root, so no
     # second filesystem can answer to that label afterwards.
+    disk_path = json.loads((saved / 'manifest.json').read_text())['disk']
+    arguments = layout.sgdisk_arguments(plan, disk_path, info)
     print('Wiping stale filesystem and encryption metadata...', flush=True)
     device_layout('wipe-head', layout.USERDATA_NAME, str(layout.WIPE_BYTES), timeout=300)
     if mode == 'dual':
         device_layout('wipe-head', layout.METADATA_NAME, str(layout.WIPE_BYTES), timeout=300)
-    disk_path = json.loads((saved / 'manifest.json').read_text())['disk']
-    arguments = layout.sgdisk_arguments(plan, disk_path, info)
     print('Writing the new partition table...', flush=True)
     try:
         if 'LAYOUT_APPLIED' not in device_layout('apply', ANCHOR, *arguments, timeout=300):
@@ -857,7 +864,7 @@ def apply_layout(device_layout, before, plan, saved, mode):
         if plan.entry(layout.USERDATA_NAME).action != 'delete':
             layout.verify_preserved(info, layout.parse_info(device_layout('info', layout.USERDATA_NAME)))
     except (RuntimeError, layout.LayoutError) as error:
-        print('Partition-table edit failed; restoring the saved table.', file=sys.stderr, flush=True)
+        print('Partition-table edit failed; device cleanup attempts to restore read-only flags. The saved table was NOT restored automatically.', file=sys.stderr, flush=True)
         raise RuntimeError(str(error) + ' —— 分区表写入失败，请用 --restore-partition-table '
                            + str(saved.parent) + ' 恢复出厂分区表后重试')
     print('New partition table verified.')

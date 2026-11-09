@@ -72,3 +72,5 @@ jobs:
           python3 tests/clock-floor.py
       - name: Root package policy
         run: python3 tests/root-package-policy.py
+      - name: Installer preflight
+        run: sudo python3 tests/install-preflight.py

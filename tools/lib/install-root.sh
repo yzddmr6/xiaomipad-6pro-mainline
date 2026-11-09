@@ -175,31 +175,35 @@ opened=false
 persist_mounted=false
 download_mounted=false
 cleanup() {
+	cleanup_failed=0
 	sync
 	if [ "$home_mounted" = true ]; then
-		umount /mnt/install-home || return 1
-		home_mounted=false
+		umount /mnt/install-home && home_mounted=false || cleanup_failed=1
 	fi
 	if [ "$mounted" = true ]; then
-		umount /mnt/install || return 1
-		mounted=false
+		umount /mnt/install && mounted=false || cleanup_failed=1
 	fi
 	if [ "$opened" = true ]; then
-		/bin/busybox blockdev --setro "$home"
-		/bin/busybox blockdev --setro "$root"
-		/bin/busybox blockdev --setro "$parent"
-		opened=false
+		for cleanup_node in "$home" "$root" "$parent"; do
+			/bin/busybox blockdev --setro "$cleanup_node" || cleanup_failed=1
+		done
+		[ "$cleanup_failed" != 0 ] || opened=false
 	fi
 	if [ "$persist_mounted" = true ]; then
-		umount /run/persist || return 1
-		persist_mounted=false
+		umount /run/persist && persist_mounted=false || cleanup_failed=1
 	fi
 	if [ "$download_mounted" = true ]; then
-		umount /mnt/install-download || return 1
-		download_mounted=false
+		umount /mnt/install-download && download_mounted=false || cleanup_failed=1
 	fi
+	[ "$cleanup_failed" = 0 ] || { echo 'liuqin-install: ERROR: cleanup could not fully restore read-only storage' >&2; return 1; }
 }
-trap cleanup EXIT
+finish() {
+	status=$?
+	trap - EXIT HUP INT TERM
+	cleanup || status=1
+	exit "$status"
+}
+trap finish EXIT
 trap 'exit 130' HUP INT TERM
 if [ "$rescue" = ENABLE-USB-RESCUE ]; then
  [ -s /run/liuqin-devmode/authorized_keys ] || die 'developer mode requires a host public key before formatting'
@@ -219,8 +223,8 @@ for item in wlan/wlan_mac.bin bluetooth/.bt_nv.bin audio/crus_calr.bin; do
 	[ -f "/run/persist/$item" ] || die 'factory data is incomplete'
 done
 [ -d /run/persist/sensors/registry/registry ] || die 'factory sensor registry is missing'
-/bin/busybox blockdev --setrw "$parent"
 opened=true
+/bin/busybox blockdev --setrw "$parent"
 /bin/busybox blockdev --setrw "$root"
 /bin/busybox blockdev --setrw "$home"
 prepare_home "$home" "$keep_home"
