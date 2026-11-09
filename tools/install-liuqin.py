@@ -185,6 +185,22 @@ def command(address, text, timeout=60):
         raise RuntimeError('RAM command timed out or connection closed; installation stopped')
 
 
+def fastboot_answers(serial, timeout=5):
+    """True once the tablet with this serial answers in Fastboot.
+
+    Only this serial is addressed: no command lists or touches any other
+    device on the host. While the tablet is absent, fastboot waits for it,
+    so each probe is bounded by a timeout.
+    """
+    try:
+        result = subprocess.run(['fastboot', '-s', serial, 'getvar', 'product'],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0 and re.search(r'\bproduct:\s*liuqin\b', result.stdout) is not None
+
+
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', type=Path, required=True)
@@ -628,8 +644,7 @@ def main(argv=None):
         remote("(sleep 2; /usr/sbin/liuqin-reboot bootloader) >/dev/null 2>&1 &")
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            devices = subprocess.check_output(['fastboot', 'devices'], text=True, timeout=10)
-            if any(line.split()[0] == args.serial for line in devices.splitlines() if line.split()):
+            if fastboot_answers(args.serial):
                 break
             time.sleep(2)
         else:
