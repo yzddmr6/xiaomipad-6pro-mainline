@@ -323,20 +323,27 @@ Android 无法从 B 槽启动，该更新还会破坏 Ubuntu boot 镜像的回�
 双系统建成后运行它会覆盖 Ubuntu 的启动链，使平板退回到只有 Android 的状态。
 `flash_all_lock.sh` 与 `flash_all_except_storage.sh` 同理。
 
-## 桌面诊断
+## 开发者模式
 
-有人在场的安装测试可在安装命令后添加 `--enable-rescue`，让救援通道从首次启动即可使用。
-该选项会开放免认证 root 访问，仅适用于可信连接；默认安装不启用。
+开发者模式提供经 USB 线的 root SSH 登录，只接受密钥，默认关闭。有人在场的安装可在安装命令后添加
+`--enable-rescue`：安装器写入主机的 SSH 公钥（默认 `~/.ssh/id_ed25519.pub`，可用 `--ssh-public-key`
+指定），首次启动即可登录。保留数据重装时，若原系统已开启开发者模式，新系统继续开启并保留原有公钥。
 
-也可以在平板上手动开启：
+也可以在平板上开启或关闭：
 
 ```sh
-sudo liuqin-rescue on
+sudo liuqin-devmode on
+sudo liuqin-devmode off
 ```
 
-使用 `liuqin-rescue status` 查看状态。开启后，`192.168.7.2:2323` 提供救援访问，重启后仍然有效。
-不要将此端口转发或暴露到其他网络。诊断结束后，在平板上执行 `sudo liuqin-rescue off` 关闭通道；
-现有救援连接也会断开。
+用 `liuqin-devmode status` 查看状态；公钥位于平板的 `/etc/liuqin/devmode/authorized_keys`。开启后平板在
+USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。在主机的项目目录中连接：
+
+```sh
+python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
+```
+
+只在可信的直连 USB 上使用；诊断结束后执行 `sudo liuqin-devmode off`。
 
 ## 已知问题
 

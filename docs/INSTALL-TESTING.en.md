@@ -410,23 +410,30 @@ slot B, and the update destroys the fallback copy of the Ubuntu boot image.
 Ubuntu boot chain and returns the tablet to Android only. The same applies to
 `flash_all_lock.sh` and `flash_all_except_storage.sh`.
 
-## Desktop Diagnostics
+## Developer Mode
 
-For an attended installation test, add `--enable-rescue` to the installation
-command to make the rescue shell available from the first boot. This is an
-explicit opt-in to unauthenticated root access, not the default installation.
+Developer mode provides root SSH login over the USB cable. It accepts keys only and is off by default.
+For an attended installation, add `--enable-rescue` to the installation command: the installer
+provisions the host's SSH public key (`~/.ssh/id_ed25519.pub` by default, or the key given with
+`--ssh-public-key`), so the login works from the first boot. A reinstall that keeps `/home` keeps
+developer mode enabled, with the existing keys, when the previous system had it enabled.
 
-On the tablet, enable the rescue shell with:
+It can also be switched on the tablet:
 
 ```sh
-sudo liuqin-rescue on
+sudo liuqin-devmode on
+sudo liuqin-devmode off
 ```
 
-Check it with `liuqin-rescue status`. This grants unauthenticated root access
-at `192.168.7.2:2323` and remains enabled across boots. Use only a trusted
-connection; do not expose or forward this port to other networks. After
-diagnostics, run `sudo liuqin-rescue off` on the tablet to disable it and
-close existing rescue connections. Release images leave it disabled by default.
+Check it with `liuqin-devmode status`; the keys are in `/etc/liuqin/devmode/authorized_keys` on the
+tablet. While enabled, the tablet uses `192.168.66.2` on the USB network and the host receives
+`192.168.66.10` by DHCP. Connect from the project directory on the host:
+
+```sh
+python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
+```
+
+Use it only over a trusted, direct USB connection, and run `sudo liuqin-devmode off` after diagnostics.
 
 ## Known Issues
 
