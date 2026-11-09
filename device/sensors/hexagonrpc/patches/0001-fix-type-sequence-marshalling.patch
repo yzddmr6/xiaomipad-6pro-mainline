@@ -1,0 +1,411 @@
+From: Codex <codex@localhost>
+Subject: [PATCH] fix type sequence marshalling
+
+Base: linux-msm/hexagonrpc 598b591ae9da6a6cfe2ca5ea78998019ca6395ea
+
+Select the current inner type for each sequence. Reserve metadata buffer slots
+consistently even for empty sequences, count output primitive buffers, preserve
+the instance cursor while measuring output elements, and advance past the
+metadata slot when encoding/decoding. Zero-initialize slots for empty buffers
+and allocation-failure cleanup. Use memcpy for packed nested fields.
+
+Add eleven explicit wire-buffer scenarios with a substituted ioctl and failed
+allocation checks; no DSP device is opened. The original upstream tests remain.
+
+Liuqin adaptation: append tests after the existing liuqin registry tests.
+
+--- a/libhexagonrpc/hexagonrpc.c
++++ b/libhexagonrpc/hexagonrpc.c
+@@ -101,10 +101,10 @@
+ 				*inst = (char *) *inst + size;
+ 				break;
+ 			case HRPC_ARG_BLOB_SEQ:
+-				arg32 = *(const uint32_t *) *inst;
+-				*inst = (uint32_t *) *inst + 1;
+-				ptr = *(void **) *inst;
+-				*inst = (void **) *inst + 1;
++				memcpy(&arg32, *inst, sizeof(arg32));
++				*inst = (char *) *inst + sizeof(arg32);
++				memcpy(&ptr, *inst, sizeof(ptr));
++				*inst = (char *) *inst + sizeof(ptr);
+ 
+ 				size = (size_t) type->p[i].d * arg32;
+ 
+@@ -139,10 +139,10 @@
+ 				*inst = (char *) *inst + size;
+ 				break;
+ 			case HRPC_ARG_BLOB_SEQ:
+-				arg32 = *(const uint32_t *) *inst;
+-				*inst = (uint32_t *) *inst + 1;
+-				ptr = *(void **) *inst;
+-				*inst = (void **) *inst + 1;
++				memcpy(&arg32, *inst, sizeof(arg32));
++				*inst = (char *) *inst + sizeof(arg32);
++				memcpy(&ptr, *inst, sizeof(ptr));
++				*inst = (char *) *inst + sizeof(ptr);
+ 
+ 				size = (size_t) type->p[i].d * arg32;
+ 
+@@ -213,6 +213,7 @@
+ 			case HRPC_ARG_TYPE_SEQ:
+ 				arg32 = va_arg(list, uint32_t);
+ 				iptr = va_arg(list, const void *);
++				inner_type = &def->inner_types[def->args[i].d];
+ 
+ 				ops->emit_prim_in(sizeof(arg32), &arg32, data);
+ 				ret = ops->emit_type_seq_in(def, inner_type,
+@@ -244,6 +245,7 @@
+ 			case HRPC_ARG_OUT_TYPE_SEQ:
+ 				arg32 = va_arg(list, uint32_t);
+ 				optr = va_arg(list, void *);
++				inner_type = &def->inner_types[def->args[i].d];
+ 
+ 				ops->emit_prim_in(sizeof(arg32), &arg32, data);
+ 				ret = ops->emit_type_seq_out(def, inner_type,
+@@ -295,11 +297,11 @@
+ 	struct buf_count *count = data;
+ 	int ret = 0;
+ 
++	count->n_inbufs++;
+ 	if (n_inst) {
+ 		ret = emit_inner_type_in(type,
+ 					 &count_ops, &inner_count,
+ 					 &inst);
+-		count->n_inbufs++;
+ 		count->n_inbufs += inner_count.n_inbufs * n_inst;
+ 	}
+ 
+@@ -314,11 +316,12 @@
+ 	struct buf_count *count = data;
+ 	int ret = 0;
+ 
++	count->n_inbufs++;
++	count->n_outbufs++;
+ 	if (n_inst) {
+ 		ret = emit_inner_type_out(type,
+ 					  &count_ops, &inner_count,
+ 					  &inst);
+-		count->n_inbufs++;
+ 		count->n_outbufs += inner_count.n_outbufs * n_inst;
+ 	}
+ 
+@@ -370,9 +373,11 @@
+ 			return ret;
+ 
+ 		curr->inbuf->length = inner_count.n_prim_in * n_inst;
+-		curr->inbuf->ptr = (__u64) malloc(curr->inbuf->length);
+-		if (curr->inbuf->ptr == 0)
+-			return -1;
++		if (curr->inbuf->length) {
++			curr->inbuf->ptr = (__u64) malloc(curr->inbuf->length);
++			if (curr->inbuf->ptr == 0)
++				return -1;
++		}
+ 	}
+ 
+ 	curr->inbuf++;
+@@ -392,25 +397,30 @@
+ {
+ 	struct buf_count inner_count = { 0, 0, 0, 0 };
+ 	struct curr_buf *curr = data;
++	void *inst2 = inst;
+ 	int ret = 0;
+ 	size_t i;
+ 
+ 	if (n_inst) {
+ 		ret = emit_inner_type_out(type,
+ 					  &count_ops, &inner_count,
+-					  &inst);
++					  &inst2);
+ 		if (ret)
+ 			return ret;
+ 
+ 		curr->inbuf->length = inner_count.n_prim_in * n_inst;
+-		curr->inbuf->ptr = (__u64) malloc(curr->inbuf->length);
+-		if (curr->inbuf->ptr == 0)
+-			return -1;
++		if (curr->inbuf->length) {
++			curr->inbuf->ptr = (__u64) malloc(curr->inbuf->length);
++			if (curr->inbuf->ptr == 0)
++				return -1;
++		}
+ 
+ 		curr->outbuf->length = inner_count.n_prim_out * n_inst;
+-		curr->outbuf->ptr = (__u64) malloc(curr->outbuf->length);
+-		if (curr->outbuf->ptr == 0)
+-			return -1;
++		if (curr->outbuf->length) {
++			curr->outbuf->ptr = (__u64) malloc(curr->outbuf->length);
++			if (curr->outbuf->ptr == 0)
++				return -1;
++		}
+ 	}
+ 
+ 	curr->inbuf++;
+@@ -456,7 +466,7 @@
+ 	int ret;
+ 	size_t i;
+ 
+-	inner_pos.buf = pos->buf;
++	inner_pos.buf = pos->buf + 1;
+ 	inner_pos.prim = (void *) pos->buf->ptr;
+ 
+ 	for (i = 0; i < n_inst; i++) {
+@@ -478,7 +488,7 @@
+ 	int ret;
+ 	size_t i;
+ 
+-	inner_pos.buf = pos->buf;
++	inner_pos.buf = pos->buf + 1;
+ 	inner_pos.prim = (void *) pos->buf->ptr;
+ 
+ 	for (i = 0; i < n_inst; i++) {
+@@ -529,7 +539,7 @@
+ 	int ret;
+ 	size_t i;
+ 
+-	inner_pos.buf = pos->buf;
++	inner_pos.buf = pos->buf + 1;
+ 	inner_pos.prim = (void *) pos->buf->ptr;
+ 
+ 	for (i = 0; i < n_inst; i++) {
+@@ -653,7 +663,7 @@
+ 	int ret = -1;
+ 	va_list peek;
+ 
+-	args = malloc(sizeof(*args) * (count->n_inbufs + count->n_outbufs));
++	args = calloc(count->n_inbufs + count->n_outbufs, sizeof(*args));
+ 	if (args == NULL)
+ 		return NULL;
+ 
+--- /dev/null
++++ b/tests/test_type_sequence.c
+@@ -0,0 +1,206 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++/* Exercise the actual marshaller against explicit wire buffers. No device I/O.
++ * The ioctl substitution follows tests/test_hexagonrpc.c (HexagonRPC Contributors).
++ */
++#include <libhexagonrpc/hexagonrpc.h>
++#include <misc/fastrpc.h>
++#include <errno.h>
++#include <stdarg.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/ioctl.h>
++
++#define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __func__, __LINE__, #x); exit(1); } } while (0)
++struct buffer { size_t size; const void *data; };
++struct bytes { uint32_t size; char *data; } __attribute__((packed));
++struct record { uint32_t word, size; char *data; } __attribute__((packed));
++static const struct buffer *inputs, *outputs;
++static unsigned nin, nout, invokes, allocations, fail_at;
++static int invoke_error;
++
++void *__real_malloc(size_t size);
++void *__real_calloc(size_t count, size_t size);
++void *__wrap_malloc(size_t size)
++{
++	if (++allocations == fail_at) return NULL;
++	return __real_malloc(size);
++}
++void *__wrap_calloc(size_t count, size_t size)
++{
++	if (++allocations == fail_at) return NULL;
++	return __real_calloc(count, size);
++}
++
++#ifdef __GLIBC__
++typedef unsigned long ioctl_operation;
++#else
++typedef int ioctl_operation;
++#endif
++int ioctl(int fd, ioctl_operation op, ...)
++{
++	va_list ap;
++	va_start(ap, op);
++	struct fastrpc_invoke *invoke = (void *)(uintptr_t)va_arg(ap, __u64);
++	va_end(ap);
++	CHECK(fd == -1 && op == (ioctl_operation)FASTRPC_IOCTL_INVOKE);
++	CHECK(invoke->handle == 0);
++	CHECK(invoke->sc == REMOTE_SCALARS_MAKE(4, nin, nout));
++	struct fastrpc_invoke_args *args = (void *)(uintptr_t)invoke->args;
++	for (unsigned i = 0; i < nin; ++i) {
++		CHECK(args[i].fd == -1 && args[i].attr == 0);
++		CHECK(args[i].length == inputs[i].size);
++		if (inputs[i].size) CHECK(!memcmp((void *)(uintptr_t)args[i].ptr, inputs[i].data, inputs[i].size));
++	}
++	for (unsigned i = 0; i < nout; ++i) {
++		CHECK(args[nin + i].fd == -1 && args[nin + i].attr == 0);
++		CHECK(args[nin + i].length == outputs[i].size);
++		if (!invoke_error && outputs[i].size)
++			memcpy((void *)(uintptr_t)args[nin + i].ptr, outputs[i].data, outputs[i].size);
++	}
++	invokes++;
++	return invoke_error;
++}
++
++static const struct hrpc_arg_def_interp4 bytes_fields[] = {{HRPC_ARG_BLOB_SEQ, 1}};
++static const struct hrpc_arg_def_interp4 word_fields[] = {{HRPC_ARG_BLOB, 4}};
++static const struct hrpc_arg_def_interp4 wide_fields[] = {{HRPC_ARG_BLOB, 8}};
++static const struct hrpc_arg_def_interp4 record_fields[] = {{HRPC_ARG_BLOB, 4}, {HRPC_ARG_BLOB_SEQ, 1}};
++static const struct hrpc_inner_type_def_interp4 types[] = {
++	{1, bytes_fields}, {1, word_fields}, {1, wide_fields}, {2, record_fields},
++};
++#define METHOD(name, ...) \
++	const struct hrpc_arg_def_interp4 name##_args[] = {__VA_ARGS__}; \
++	const struct hrpc_method_def_interp4 name = {4, HRPC_ARRAY_SIZE(name##_args), name##_args, HRPC_ARRAY_SIZE(types), types}
++#define EXPECT(in, out) do { inputs = in; nin = HRPC_ARRAY_SIZE(in); outputs = out; nout = HRPC_ARRAY_SIZE(out); invokes = 0; } while (0)
++#define EXPECT_IN(in) do { inputs = in; nin = HRPC_ARRAY_SIZE(in); outputs = NULL; nout = 0; invokes = 0; } while (0)
++static const uint32_t words[] = {0x11223344, 0xaabbccdd};
++
++static void input_first(void)
++{
++	METHOD(def, {HRPC_ARG_TYPE_SEQ, 1}, {HRPC_ARG_BLOB_SEQ, 1});
++	const uint32_t prim[] = {2, 1};
++	const struct buffer in[] = {{sizeof(prim), prim}, {sizeof(words), words}, {1, "!"}};
++	EXPECT_IN(in);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)2, (const void *)words, (uint32_t)1, (const void *)"!"));
++	CHECK(invokes == 1);
++}
++static void input_after_other(void)
++{
++	METHOD(def, {HRPC_ARG_TYPE, 2}, {HRPC_ARG_TYPE_SEQ, 1});
++	const uint64_t wide = 0x0123456789abcdef;
++	const uint32_t prim[] = {0x89abcdef, 0x01234567, 2};
++	const struct buffer in[] = {{sizeof(prim), prim}, {sizeof(words), words}};
++	EXPECT_IN(in);
++	CHECK(!hexagonrpc(&def, -1, 0, (const void *)&wide, (uint32_t)2, (const void *)words));
++	CHECK(invokes == 1);
++}
++static void input_two(void)
++{
++	METHOD(def, {HRPC_ARG_TYPE_SEQ, 0}, {HRPC_ARG_TYPE_SEQ, 1});
++	const struct bytes nested[] = {{2, "hi"}, {3, "bye"}};
++	const uint32_t prim[] = {2, 2}, lengths[] = {2, 3};
++	const struct buffer in[] = {{sizeof(prim), prim}, {sizeof(lengths), lengths}, {2, "hi"}, {3, "bye"}, {sizeof(words), words}};
++	EXPECT_IN(in);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)2, (const void *)nested, (uint32_t)2, (const void *)words));
++	CHECK(invokes == 1);
++}
++static void input_empty(void)
++{
++	METHOD(def, {HRPC_ARG_TYPE_SEQ, 1}, {HRPC_ARG_BLOB_SEQ, 1});
++	const uint32_t prim[] = {0, 1};
++	const struct buffer in[] = {{sizeof(prim), prim}, {0, NULL}, {1, "!"}};
++	EXPECT_IN(in);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)0, NULL, (uint32_t)1, (const void *)"!"));
++	CHECK(invokes == 1);
++}
++static void output_plain(void)
++{
++	METHOD(def, {HRPC_ARG_OUT_TYPE_SEQ, 1}, {HRPC_ARG_OUT_BLOB_SEQ, 1});
++	const uint32_t prim[] = {2, 1};
++	const struct buffer in[] = {{sizeof(prim), prim}, {0, NULL}};
++	const struct buffer out[] = {{sizeof(words), words}, {1, "!"}};
++	uint32_t got[2] = {0}; char tail = 0;
++	EXPECT(in, out);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)2, (void *)got, (uint32_t)1, (void *)&tail));
++	CHECK(invokes == 1 && !memcmp(got, words, sizeof(words)) && tail == '!');
++}
++static void output_nested(void)
++{
++	METHOD(def, {HRPC_ARG_OUT_TYPE_SEQ, 3});
++	const uint32_t prim[] = {2}, lengths[] = {2, 3};
++	const struct buffer in[] = {{sizeof(prim), prim}, {sizeof(lengths), lengths}};
++	const struct buffer out[] = {{sizeof(words), words}, {2, "hi"}, {3, "bye"}};
++	char a[2] = {0}, b[3] = {0};
++	struct record got[] = {{0, 2, a}, {0, 3, b}};
++	EXPECT(in, out);
++	allocations = 0;
++	int ret = hexagonrpc(&def, -1, 0, (uint32_t)2, (void *)got);
++	if (fail_at || invoke_error) {
++		CHECK(ret < 0);
++		CHECK(invokes == (fail_at ? 0u : 1u));
++		CHECK(got[0].word == 0 && got[1].word == 0);
++	} else {
++		CHECK(ret == 0 && invokes == 1);
++		CHECK(got[0].word == words[0] && got[1].word == words[1]);
++		CHECK(!memcmp(a, "hi", 2) && !memcmp(b, "bye", 3));
++	}
++}
++static void output_two(void)
++{
++	METHOD(def, {HRPC_ARG_OUT_TYPE_SEQ, 1}, {HRPC_ARG_OUT_TYPE_SEQ, 3});
++	const uint32_t prim[] = {2, 1}, length = 2, word = 42;
++	const struct buffer in[] = {{sizeof(prim), prim}, {0, NULL}, {sizeof(length), &length}};
++	const struct buffer out[] = {{sizeof(words), words}, {sizeof(word), &word}, {2, "hi"}};
++	uint32_t got[2] = {0}; char data[2] = {0}; struct record nested = {0, 2, data};
++	EXPECT(in, out);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)2, (void *)got, (uint32_t)1, (void *)&nested));
++	CHECK(invokes == 1 && !memcmp(got, words, sizeof(words)) && nested.word == word && !memcmp(data, "hi", 2));
++}
++static void output_empty(void)
++{
++	METHOD(def, {HRPC_ARG_OUT_TYPE_SEQ, 1}, {HRPC_ARG_OUT_BLOB_SEQ, 1});
++	const uint32_t prim[] = {0, 1};
++	const struct buffer in[] = {{sizeof(prim), prim}, {0, NULL}};
++	const struct buffer out[] = {{0, NULL}, {1, "!"}};
++	char got = 0;
++	EXPECT(in, out);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)0, NULL, (uint32_t)1, (void *)&got));
++	CHECK(invokes == 1 && got == '!');
++}
++static void in_out(void)
++{
++	METHOD(def, {HRPC_ARG_TYPE_SEQ, 1}, {HRPC_ARG_OUT_TYPE_SEQ, 1});
++	const uint32_t prim[] = {2, 2};
++	const struct buffer in[] = {{sizeof(prim), prim}, {sizeof(words), words}, {0, NULL}};
++	const struct buffer out[] = {{sizeof(words), words}};
++	uint32_t got[2] = {0};
++	EXPECT(in, out);
++	CHECK(!hexagonrpc(&def, -1, 0, (uint32_t)2, (const void *)words, (uint32_t)2, (void *)got));
++	CHECK(invokes == 1 && !memcmp(got, words, sizeof(words)));
++}
++static void ioctl_failure(void) { invoke_error = -EIO; output_nested(); }
++static void allocation_failure(void)
++{
++	output_nested();
++	unsigned total = allocations;
++	for (fail_at = 1; fail_at <= total; ++fail_at) output_nested();
++	printf("allocation failure points checked: %u\n", total);
++	fail_at = 0;
++}
++int main(int argc, char **argv)
++{
++	const struct { const char *name; void (*run)(void); } cases[] = {
++		{"input-first", input_first}, {"input-after-other", input_after_other},
++		{"input-two", input_two}, {"input-empty", input_empty},
++		{"output-plain", output_plain}, {"output-nested", output_nested},
++		{"output-two", output_two}, {"output-empty", output_empty},
++		{"in-out", in_out}, {"ioctl-failure", ioctl_failure}, {"allocation-failure", allocation_failure},
++	};
++	CHECK(argc == 2);
++	for (unsigned i = 0; i < HRPC_ARRAY_SIZE(cases); ++i) {
++		if (!strcmp(argv[1], cases[i].name)) {
++			cases[i].run(); puts("PASS"); return 0;
++		}
++	}
++	return 2;
++}
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -61,3 +61,19 @@
+ test('registry-version-contract', test_registry_version_contract,
+   args : [meson.current_build_dir()])
+ test('sns-registry', test_sns_registry)
++
++# Substitute allocation and ioctl calls to exercise errors without a device.
++test_type_sequence = executable('test_type_sequence',
++  'test_type_sequence.c',
++  '../libhexagonrpc/hexagonrpc.c',
++  c_args : cflags,
++  include_directories : include,
++  link_args : ['-Wl,--wrap=malloc', '-Wl,--wrap=calloc'],
++)
++foreach scenario : [
++  'input-first', 'input-after-other', 'input-two', 'input-empty',
++  'output-plain', 'output-nested', 'output-two', 'output-empty',
++  'in-out', 'ioctl-failure', 'allocation-failure',
++]
++  test('type-sequence-' + scenario, test_type_sequence, args : [scenario])
++endforeach

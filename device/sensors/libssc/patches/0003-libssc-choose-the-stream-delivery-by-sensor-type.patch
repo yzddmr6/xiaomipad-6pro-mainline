@@ -1,0 +1,572 @@
+From a47d900d43349b5accaba5bb661628109cd1631f Mon Sep 17 00:00:00 2001
+From: yzddmr6 <46088090+yzddmr6@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 21:00:00 +0800
+Subject: [PATCH] libssc: choose the stream delivery by sensor type
+
+With wake-up delivery, which libssc requests for every stream, the SSC
+signals the application processor for each sample it delivers. On the
+OnePlus Pad 2 Pro (SM8750) the 5 Hz accelerometer stream of
+iio-sensor-proxy therefore raises about five ADSP SMP2P interrupts a
+second. Selecting non-wakeup delivery through SSC_SUSPEND_MODE (previous
+patch) removed all of them while the samples kept flowing at the same
+rate: the interrupts are the wake-up signal of the delivery type, not
+something the firmware does for every sample.
+
+Wake-up delivery is only right for sensors whose events have to wake the
+system. Android separates the two: a non-wake-up sensor neither keeps the
+SoC awake nor wakes it to report, and before the per-sensor flag only
+proximity and significant motion were wake-up sensors by type; the
+stock sensor HAL of this tablet chooses the delivery for each sensor. Do
+the same for the data types libssc knows:
+
+  accel, gyro, mag, rotv    no-wakeup (delivery_type 1)
+  every other data type     wake-up (delivery_type 0), as before
+
+Only the request that starts a stream carries the per-type delivery;
+discovery, attribute and disable requests stay wake-up. The light sensor
+keeps wake-up delivery: it reports on change rather than per sample, and
+changing it is left until it has been measured.
+
+Streams are still not batched by default. Non-wakeup delivery alone
+already removes the interrupts while the processor is awake, and a batch
+period delays each sample by up to one period; the orientation of the
+screen is taken from these samples, so batching would only add latency.
+
+SSC_SUSPEND_MODE=wakeup|nowakeup and SSC_BATCH_PERIOD_US /
+SSC_FLUSH_PERIOD_US keep their meaning and still apply to every stream
+of the process, so SSC_SUSPEND_MODE=wakeup restores the requests of
+libssc 0.4.4 for A/B measurements or as a fallback. Unset or empty, the
+delivery follows the sensor type. Every stream request now logs the
+delivery it asks for and whether the sensor type or SSC_SUSPEND_MODE
+chose it.
+
+The sensor passes its data type with the stream request through a new
+ssc_client_send_for_sensor(); ssc_client_send() is unchanged for the
+requests that are not about one sensor type. The unit test checks the
+default of each type, the requests of each type with and without the
+overrides, and the wire bytes of a wake-up and a non-wakeup request.
+
+What non-wakeup delivery does while the application processor is
+suspended (events held or dropped by the SSC, and delivered when it
+resumes) has not been measured.
+
+Assisted-by: LLM
+---
+ src/libssc-client-private.h |  20 +++-
+ src/libssc-client.c         |  85 +++++++++++++--
+ src/libssc-sensor.c         |  18 ++--
+ tests/delivery.c            | 207 ++++++++++++++++++++++++++++++------
+ 4 files changed, 273 insertions(+), 57 deletions(-)
+
+diff --git a/src/libssc-client-private.h b/src/libssc-client-private.h
+index 8f6d09d..c5112ae 100644
+--- a/src/libssc-client-private.h
++++ b/src/libssc-client-private.h
+@@ -54,10 +54,15 @@ typedef enum {
+ #define SSC_MSG_REQUEST_SUID		512
+ #define SSC_MSG_RESPONSE_SUID		768
+ 
++/* Not a wire value: the delivery follows the sensor type. */
++#define SSC_SUSPEND_MODE_BY_SENSOR_TYPE	-1
++
+ /*
+- * How the SSC delivers the samples of a streaming request. Read once per
+- * process from SSC_SUSPEND_MODE, SSC_BATCH_PERIOD_US and SSC_FLUSH_PERIOD_US;
+- * without them, streams are delivered as wake-up events without batching.
++ * How the SSC delivers the samples of a streaming request. The delivery type
++ * defaults per sensor type (ssc_client_default_suspend_mode); streams are not
++ * batched by default. SSC_SUSPEND_MODE, SSC_BATCH_PERIOD_US and
++ * SSC_FLUSH_PERIOD_US, read once per process, override both for every
++ * streaming request of the process.
+  */
+ typedef struct {
+ 	gint32 suspend_mode;
+@@ -68,6 +73,12 @@ typedef struct {
+ void
+ ssc_client_delivery_config_from_env (SSCDeliveryConfig *config);
+ 
++gint32
++ssc_client_default_suspend_mode (const gchar *data_type);
++
++void
++ssc_client_delivery_for_sensor (const SSCDeliveryConfig *overrides, const gchar *data_type, SSCDeliveryConfig *delivery);
++
+ GArray *
+ ssc_client_pack_request (const SSCDeliveryConfig *delivery, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf);
+ 
+@@ -80,6 +91,9 @@ ssc_client_new_finish (GAsyncResult *res, GError **error);
+ void
+ ssc_client_send (SSCClient *self, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data); 
+ 
++void
++ssc_client_send_for_sensor (SSCClient *self, const gchar *data_type, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data);
++
+ gboolean
+ ssc_client_send_finish (SSCClient *self, GAsyncResult *res, GError **error);
+ 
+diff --git a/src/libssc-client.c b/src/libssc-client.c
+index ff0148a..28e14b0 100644
+--- a/src/libssc-client.c
++++ b/src/libssc-client.c
+@@ -185,11 +185,13 @@ ssc_client_delivery_config_from_env (SSCDeliveryConfig *config)
+ {
+ 	const gchar *mode = g_getenv ("SSC_SUSPEND_MODE");
+ 
+-	config->suspend_mode = SSC_SUSPEND_MODE_WAKEUP;
++	config->suspend_mode = SSC_SUSPEND_MODE_BY_SENSOR_TYPE;
+ 	if (mode != NULL && *mode != '\0') {
+ 		if (g_str_equal (mode, "nowakeup"))
+ 			config->suspend_mode = SSC_SUSPEND_MODE_NO_WAKEUP;
+-		else if (!g_str_equal (mode, "wakeup"))
++		else if (g_str_equal (mode, "wakeup"))
++			config->suspend_mode = SSC_SUSPEND_MODE_WAKEUP;
++		else
+ 			g_warning ("Ignoring SSC_SUSPEND_MODE=%s: expected wakeup or nowakeup", mode);
+ 	}
+ 
+@@ -201,19 +203,49 @@ ssc_client_delivery_config_from_env (SSCDeliveryConfig *config)
+ 	}
+ }
+ 
++/*
++ * Motion and orientation streams: the accelerometer, gyroscope, magnetometer
++ * and rotation vector sample continuously, and their samples are only of use
++ * to a reader that is awake anyway (screen rotation, compass). Asking for
++ * wake-up delivery makes the SSC signal the application processor for every
++ * sample, as for an Android wake-up sensor. Every other type keeps wake-up
++ * delivery: proximity and the event sensors (significant motion, hall,
++ * gestures) exist to wake the system, and a type this list does not name
++ * keeps the behaviour libssc always had.
++ */
++static const gchar * const no_wakeup_data_types[] = {
++	"accel",
++	"gyro",
++	"mag",
++	"rotv",
++};
++
++gint32
++ssc_client_default_suspend_mode (const gchar *data_type)
++{
++	for (gsize i = 0; data_type && i < G_N_ELEMENTS (no_wakeup_data_types); i++)
++		if (g_str_equal (data_type, no_wakeup_data_types[i]))
++			return SSC_SUSPEND_MODE_NO_WAKEUP;
++
++	return SSC_SUSPEND_MODE_WAKEUP;
++}
++
++void
++ssc_client_delivery_for_sensor (const SSCDeliveryConfig *overrides, const gchar *data_type, SSCDeliveryConfig *delivery)
++{
++	*delivery = *overrides;
++	if (delivery->suspend_mode == SSC_SUSPEND_MODE_BY_SENSOR_TYPE)
++		delivery->suspend_mode = ssc_client_default_suspend_mode (data_type);
++}
++
+ static const SSCDeliveryConfig *
+-delivery_config (void)
++delivery_overrides (void)
+ {
+ 	static SSCDeliveryConfig config;
+ 	static gsize initialized = 0;
+ 
+ 	if (g_once_init_enter (&initialized)) {
+ 		ssc_client_delivery_config_from_env (&config);
+-		if (config.suspend_mode != SSC_SUSPEND_MODE_WAKEUP || config.batch_period_us)
+-			g_message ("Streaming requests: %s delivery, batch period %" G_GUINT32_FORMAT
+-				   " us, flush period %" G_GUINT32_FORMAT " us",
+-				   config.suspend_mode == SSC_SUSPEND_MODE_NO_WAKEUP ? "no-wakeup" : "wakeup",
+-				   config.batch_period_us, config.flush_period_us);
+ 		g_once_init_leave (&initialized, 1);
+ 	}
+ 
+@@ -276,8 +308,8 @@ ssc_client_pack_request (const SSCDeliveryConfig *delivery, guint64 uid_high, gu
+ 	return buf;
+ }
+ 
+-void
+-ssc_client_send (SSCClient *self, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
++static void
++send_request (SSCClient *self, const SSCDeliveryConfig *delivery, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
+ {
+ 	GTask *task = NULL;
+ 	GError *error = NULL;
+@@ -287,7 +319,7 @@ ssc_client_send (SSCClient *self, guint64 uid_high, guint64 uid_low, guint32 mes
+ 
+ 	task = g_task_new (self, cancellable, callback, user_data);
+ 	priv = ssc_client_get_instance_private (self);
+-	buf = ssc_client_pack_request (delivery_config (), uid_high, uid_low, message_id, protobuf);
++	buf = ssc_client_pack_request (delivery, uid_high, uid_low, message_id, protobuf);
+ 
+ 	if (buf == NULL) {
+ 		g_set_error (&error, ssc_client_error_quark(), SSC_CLIENT_ERROR_PROTOBUF,
+@@ -327,6 +359,37 @@ ssc_client_send (SSCClient *self, guint64 uid_high, guint64 uid_low, guint32 mes
+ 	qmi_message_ssc_control_input_unref (input);
+ }
+ 
++/*
++ * Requests that are not about one sensor type: a streaming request sent this
++ * way is delivered as the overrides say, and otherwise with wake-up delivery.
++ */
++void
++ssc_client_send (SSCClient *self, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
++{
++	ssc_client_send_for_sensor (self, NULL, uid_high, uid_low, message_id, protobuf, cancellable, callback, user_data);
++}
++
++void
++ssc_client_send_for_sensor (SSCClient *self, const gchar *data_type, guint64 uid_high, guint64 uid_low, guint32 message_id, GArray *protobuf, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
++{
++	const SSCDeliveryConfig *overrides = delivery_overrides ();
++	SSCDeliveryConfig delivery;
++
++	ssc_client_delivery_for_sensor (overrides, data_type, &delivery);
++	if (message_id == SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS ||
++	    message_id == SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE)
++		g_message ("Streaming '%s' requests: %s delivery (%s), batch period %" G_GUINT32_FORMAT
++			   " us, flush period %" G_GUINT32_FORMAT " us",
++			   data_type ? data_type : "unknown",
++			   delivery.suspend_mode == SSC_SUSPEND_MODE_NO_WAKEUP ? "no-wakeup" : "wakeup",
++			   overrides->suspend_mode == SSC_SUSPEND_MODE_BY_SENSOR_TYPE ?
++				"default for the sensor type" : "SSC_SUSPEND_MODE",
++			   message_id == SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS ? delivery.batch_period_us : 0,
++			   message_id == SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS ? delivery.flush_period_us : 0);
++
++	send_request (self, &delivery, uid_high, uid_low, message_id, protobuf, cancellable, callback, user_data);
++}
++
+ /*****************************************************************************/
+ 
+ static void
+diff --git a/src/libssc-sensor.c b/src/libssc-sensor.c
+index 2cf686f..b0c20ca 100644
+--- a/src/libssc-sensor.c
++++ b/src/libssc-sensor.c
+@@ -241,14 +241,16 @@ sensor_open (SSCSensor *self, GCancellable *cancellable, GAsyncReadyCallback cal
+ 			G_CALLBACK (report_received),
+ 			ctx);
+ 
+-	ssc_client_send (priv->client,
+-			 priv->uid_high,
+-			 priv->uid_low,
+-			 msg_id,
+-			 buf,
+-			 g_task_get_cancellable (task),
+-			 (GAsyncReadyCallback)sensor_open_ready,
+-			 task);
++	/* The delivery of the stream depends on the sensor type */
++	ssc_client_send_for_sensor (priv->client,
++				    priv->data_type,
++				    priv->uid_high,
++				    priv->uid_low,
++				    msg_id,
++				    buf,
++				    g_task_get_cancellable (task),
++				    (GAsyncReadyCallback)sensor_open_ready,
++				    task);
+ }
+ 
+ gboolean
+diff --git a/tests/delivery.c b/tests/delivery.c
+index fc88053..473f978 100644
+--- a/tests/delivery.c
++++ b/tests/delivery.c
+@@ -17,8 +17,9 @@
+  */
+ 
+ /*
+- * Delivery settings of the client requests: packed requests are decoded
+- * again and checked field by field. No SSC service is involved.
++ * Delivery settings of the client requests, per sensor type and with the
++ * environment overrides: packed requests are decoded again and checked
++ * field by field. No SSC service is involved.
+  */
+ 
+ #include <glib.h>
+@@ -65,95 +66,226 @@ config_from (const gchar *mode, const gchar *batch, const gchar *flush, SSCDeliv
+ }
+ 
+ static void
+-test_default_is_wakeup_without_batching (void)
++resolve (const gchar *mode, const gchar *batch, const gchar *flush, const gchar *data_type, SSCDeliveryConfig *delivery)
++{
++	SSCDeliveryConfig overrides;
++
++	config_from (mode, batch, flush, &overrides);
++	ssc_client_delivery_for_sensor (&overrides, data_type, delivery);
++}
++
++static const gchar * const motion_types[] = { "accel", "gyro", "mag", "rotv" };
++static const gchar * const wakeup_types[] = { "proximity", "ambient_light", "sig_motion", "hall", "suid", "" };
++
++static void
++test_default_follows_sensor_type (void)
+ {
+ 	SSCDeliveryConfig config;
+-	const guint32 ids[] = { SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS,
+-				SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE,
+-				SSC_MSG_REQUEST_DISABLE_REPORT,
+-				SSC_MSG_REQUEST_GET_ATTRIBUTES,
+-				SSC_MSG_REQUEST_SUID };
+ 
+ 	config_from (NULL, NULL, NULL, &config);
+-	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_BY_SENSOR_TYPE);
+ 	g_assert_cmpuint (config.batch_period_us, ==, 0);
+ 	g_assert_cmpuint (config.flush_period_us, ==, 0);
+ 
+-	for (gsize i = 0; i < G_N_ELEMENTS (ids); i++) {
+-		SscClientRequest *msg = pack_and_unpack (&config, ids[i]);
++	for (gsize i = 0; i < G_N_ELEMENTS (motion_types); i++)
++		g_assert_cmpint (ssc_client_default_suspend_mode (motion_types[i]), ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++	for (gsize i = 0; i < G_N_ELEMENTS (wakeup_types); i++)
++		g_assert_cmpint (ssc_client_default_suspend_mode (wakeup_types[i]), ==, SSC_SUSPEND_MODE_WAKEUP);
++	g_assert_cmpint (ssc_client_default_suspend_mode (NULL), ==, SSC_SUSPEND_MODE_WAKEUP);
++	/* Exact names only */
++	g_assert_cmpint (ssc_client_default_suspend_mode ("ACCEL"), ==, SSC_SUSPEND_MODE_WAKEUP);
++	g_assert_cmpint (ssc_client_default_suspend_mode ("accel_cal"), ==, SSC_SUSPEND_MODE_WAKEUP);
++}
+ 
+-		g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++static void
++test_motion_streams_default_to_nowakeup (void)
++{
++	const guint32 others[] = { SSC_MSG_REQUEST_DISABLE_REPORT,
++				   SSC_MSG_REQUEST_GET_ATTRIBUTES,
++				   SSC_MSG_REQUEST_SUID };
++
++	for (gsize i = 0; i < G_N_ELEMENTS (motion_types); i++) {
++		SSCDeliveryConfig delivery;
++		SscClientRequest *msg;
++
++		resolve (NULL, NULL, NULL, motion_types[i], &delivery);
++		g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++		g_assert_cmpuint (delivery.batch_period_us, ==, 0);
++
++		msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
++		g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
+ 		g_assert_null (msg->request->batching);
+ 		ssc_client_request__free_unpacked (msg, NULL);
++
++		msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE);
++		g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++		ssc_client_request__free_unpacked (msg, NULL);
++
++		/* Only the stream itself: the other requests keep wake-up delivery */
++		for (gsize j = 0; j < G_N_ELEMENTS (others); j++) {
++			msg = pack_and_unpack (&delivery, others[j]);
++			g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++			g_assert_null (msg->request->batching);
++			ssc_client_request__free_unpacked (msg, NULL);
++		}
+ 	}
+ }
+ 
+ static void
+-test_nowakeup_applies_to_stream_requests_only (void)
++test_wakeup_types_keep_wakeup (void)
+ {
+-	SSCDeliveryConfig config;
+-	SscClientRequest *msg;
++	const guint32 ids[] = { SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS,
++				SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE,
++				SSC_MSG_REQUEST_DISABLE_REPORT,
++				SSC_MSG_REQUEST_GET_ATTRIBUTES,
++				SSC_MSG_REQUEST_SUID };
+ 
+-	config_from ("nowakeup", NULL, NULL, &config);
+-	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++	for (gsize i = 0; i <= G_N_ELEMENTS (wakeup_types); i++) {
++		/* The last round is a request without a sensor type */
++		const gchar *type = i < G_N_ELEMENTS (wakeup_types) ? wakeup_types[i] : NULL;
++		SSCDeliveryConfig delivery;
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
+-	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
+-	g_assert_null (msg->request->batching);
+-	ssc_client_request__free_unpacked (msg, NULL);
++		resolve (NULL, NULL, NULL, type, &delivery);
++		g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++		for (gsize j = 0; j < G_N_ELEMENTS (ids); j++) {
++			SscClientRequest *msg = pack_and_unpack (&delivery, ids[j]);
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE);
++			g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++			g_assert_null (msg->request->batching);
++			ssc_client_request__free_unpacked (msg, NULL);
++		}
++	}
++}
++
++/*
++ * The wire bytes: config (field 3) is {processor 1, delivery type}, the body
++ * (field 4) has no batching (field 1). A wake-up request is what libssc 0.4.4
++ * always sent.
++ */
++static void
++test_wire_encoding (void)
++{
++	static const guint8 wakeup[] = {
++		0x0a, 0x12, 0x09, 0x00, 0xff, 0xee, 0xdd, 0xcc, 0xbb, 0xaa, 0x99,
++		0x11, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11,
++		0x15, 0x01, 0x02, 0x00, 0x00,
++		0x1a, 0x04, 0x08, 0x01, 0x10, 0x00,
++		0x22, 0x03, 0x12, 0x01, 0x0d,
++	};
++	g_autoptr (GArray) payload = g_array_new (FALSE, FALSE, 1);
++	g_autoptr (GArray) proximity = NULL;
++	g_autoptr (GArray) accel = NULL;
++	SSCDeliveryConfig delivery;
++	guint8 byte = 0x0d;
++
++	g_array_append_val (payload, byte);
++
++	resolve (NULL, NULL, NULL, "proximity", &delivery);
++	proximity = ssc_client_pack_request (&delivery, UID_HIGH, UID_LOW, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS, payload);
++	g_assert_cmpmem (proximity->data, proximity->len, wakeup, sizeof (wakeup));
++
++	resolve (NULL, NULL, NULL, "accel", &delivery);
++	accel = ssc_client_pack_request (&delivery, UID_HIGH, UID_LOW, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS, payload);
++	g_assert_cmpuint (accel->len, ==, sizeof (wakeup));
++	/* Only the delivery type differs */
++	g_assert_cmpmem (accel->data, 30, wakeup, 30);
++	g_assert_cmphex (((guint8 *) accel->data)[30], ==, 0x01);
++	g_assert_cmpmem (accel->data + 31, accel->len - 31, wakeup + 31, sizeof (wakeup) - 31);
++}
++
++static void
++test_environment_overrides_every_type (void)
++{
++	SSCDeliveryConfig delivery;
++	SscClientRequest *msg;
++
++	/* wakeup brings back the 0.4.4 requests for the motion types */
++	for (gsize i = 0; i < G_N_ELEMENTS (motion_types); i++) {
++		resolve ("wakeup", NULL, NULL, motion_types[i], &delivery);
++		g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++		msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
++		g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++		g_assert_null (msg->request->batching);
++		ssc_client_request__free_unpacked (msg, NULL);
++	}
++
++	/* nowakeup is process wide, as before: it applies to every type */
++	resolve ("nowakeup", NULL, NULL, "proximity", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE);
+ 	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
+ 	ssc_client_request__free_unpacked (msg, NULL);
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_GET_ATTRIBUTES);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_GET_ATTRIBUTES);
+ 	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
+ 	ssc_client_request__free_unpacked (msg, NULL);
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_DISABLE_REPORT);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_DISABLE_REPORT);
+ 	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
+ 	ssc_client_request__free_unpacked (msg, NULL);
++
++	/* An empty value is the same as none */
++	resolve ("", NULL, NULL, "accel", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++	resolve ("", NULL, NULL, "proximity", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
+ }
+ 
+ static void
+ test_batching_applies_to_continuous_streams (void)
+ {
+-	SSCDeliveryConfig config;
++	SSCDeliveryConfig delivery;
+ 	SscClientRequest *msg;
+ 
+-	config_from ("wakeup", "2000000", "4000000", &config);
+-	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++	resolve ("wakeup", "2000000", "4000000", "accel", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
+ 	g_assert_nonnull (msg->request->batching);
+ 	g_assert_cmpuint (msg->request->batching->batch_period, ==, 2000000);
+ 	g_assert_true (msg->request->batching->has_flush_period);
+ 	g_assert_cmpuint (msg->request->batching->flush_period, ==, 4000000);
+ 	ssc_client_request__free_unpacked (msg, NULL);
+ 
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_ON_CHANGE);
+ 	g_assert_null (msg->request->batching);
+ 	ssc_client_request__free_unpacked (msg, NULL);
+ 
+-	config_from ("nowakeup", "200000", NULL, &config);
+-	msg = pack_and_unpack (&config, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
++	/* A batch period alone keeps the per-type delivery */
++	resolve (NULL, "200000", NULL, "accel", &delivery);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
+ 	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
+ 	g_assert_cmpuint (msg->request->batching->batch_period, ==, 200000);
+ 	g_assert_false (msg->request->batching->has_flush_period);
+ 	ssc_client_request__free_unpacked (msg, NULL);
++
++	resolve (NULL, "200000", NULL, "proximity", &delivery);
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_ENABLE_REPORT_CONTINUOUS);
++	g_assert_cmpint (msg->config->suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++	g_assert_cmpuint (msg->request->batching->batch_period, ==, 200000);
++	ssc_client_request__free_unpacked (msg, NULL);
++
++	msg = pack_and_unpack (&delivery, SSC_MSG_REQUEST_GET_ATTRIBUTES);
++	g_assert_null (msg->request->batching);
++	ssc_client_request__free_unpacked (msg, NULL);
+ }
+ 
+ static void
+ test_invalid_values_are_ignored (void)
+ {
+ 	SSCDeliveryConfig config;
++	SSCDeliveryConfig delivery;
+ 
+ 	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_SUSPEND_MODE=sleep*");
+ 	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_BATCH_PERIOD_US=0*");
+ 	config_from ("sleep", "0", NULL, &config);
+ 	g_test_assert_expected_messages ();
+-	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
++	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_BY_SENSOR_TYPE);
+ 	g_assert_cmpuint (config.batch_period_us, ==, 0);
++	ssc_client_delivery_for_sensor (&config, "accel", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_NO_WAKEUP);
++	ssc_client_delivery_for_sensor (&config, "proximity", &delivery);
++	g_assert_cmpint (delivery.suspend_mode, ==, SSC_SUSPEND_MODE_WAKEUP);
+ 
+ 	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_BATCH_PERIOD_US=4294967296*");
+ 	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_FLUSH_PERIOD_US without*");
+@@ -163,9 +295,11 @@ test_invalid_values_are_ignored (void)
+ 	g_assert_cmpuint (config.batch_period_us, ==, 0);
+ 	g_assert_cmpuint (config.flush_period_us, ==, 0);
+ 
++	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_SUSPEND_MODE=default*");
+ 	g_test_expect_message (G_LOG_DOMAIN, G_LOG_LEVEL_WARNING, "Ignoring SSC_BATCH_PERIOD_US=2s*");
+-	config_from ("wakeup", "2s", NULL, &config);
++	config_from ("default", "2s", NULL, &config);
+ 	g_test_assert_expected_messages ();
++	g_assert_cmpint (config.suspend_mode, ==, SSC_SUSPEND_MODE_BY_SENSOR_TYPE);
+ 	g_assert_cmpuint (config.batch_period_us, ==, 0);
+ }
+ 
+@@ -174,8 +308,11 @@ main (int argc, char *argv[])
+ {
+ 	setlocale (LC_ALL, "");
+ 	g_test_init (&argc, &argv, NULL);
+-	g_test_add_func ("/libssc/delivery/default", test_default_is_wakeup_without_batching);
+-	g_test_add_func ("/libssc/delivery/nowakeup", test_nowakeup_applies_to_stream_requests_only);
++	g_test_add_func ("/libssc/delivery/default", test_default_follows_sensor_type);
++	g_test_add_func ("/libssc/delivery/motion", test_motion_streams_default_to_nowakeup);
++	g_test_add_func ("/libssc/delivery/wakeup-types", test_wakeup_types_keep_wakeup);
++	g_test_add_func ("/libssc/delivery/wire", test_wire_encoding);
++	g_test_add_func ("/libssc/delivery/override", test_environment_overrides_every_type);
+ 	g_test_add_func ("/libssc/delivery/batching", test_batching_applies_to_continuous_streams);
+ 	g_test_add_func ("/libssc/delivery/invalid", test_invalid_values_are_ignored);
+ 	return g_test_run ();
+-- 
+2.43.0
+

@@ -1,0 +1,23 @@
+Subject: [PATCH] mocking: decode the child wait status before exiting
+
+os.system returns a wait status. Passing it directly to sys.exit loses a
+normal child failure (for example, exit 7 becomes exit 0). Keep the upstream
+wrapper and decode its result using the standard library.
+
+Upstream: https://codeberg.org/DylanVanAssche/libssc
+Base: 54dd13e36d65c21263cf5b0f4a70c230a77b26bc
+License: GPL-3.0-or-later, as in mocking/ssc_server/ssc-server.in.
+---
+diff --git a/mocking/ssc_server/ssc-server.in b/mocking/ssc_server/ssc-server.in
+index 07a973d..ec3779b 100755
+--- a/mocking/ssc_server/ssc-server.in
++++ b/mocking/ssc_server/ssc-server.in
+@@ -328,7 +328,7 @@ if __name__ == '__main__':
+             p.start()
+ 
+         code = ERROR_OK
+-        code = os.system(args.test)
++        code = os.waitstatus_to_exitcode(os.system(args.test))
+         if code != 0:
+             print(f'❌ Test {args.test} finished with exit code {code}')
+ 

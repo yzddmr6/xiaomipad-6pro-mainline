@@ -148,6 +148,15 @@ git -C "$work/source/hexagonrpc" apply --check "$hexagonrpc_sns_patch" ||
 	die 'hexagonrpc sns_registry patch no longer applies after the registry-version patch'
 git -C "$work/source/hexagonrpc" apply "$hexagonrpc_sns_patch"
 git -C "$work/source/hexagonrpc" diff --check || die 'patched hexagonrpc tree has whitespace errors'
+# Reuse the reviewed common-library fixes against the exact source pins.
+(cd "$project_root/device/sensors" && sha256sum -c preventive-patches.sha256) ||
+ die 'preventive sensor patch identity mismatch'
+while read -r digest relative; do
+ component=${relative%%/*}
+ patch=$project_root/device/sensors/$relative
+ git -C "$work/source/$component" apply --check "$patch" || die "sensor patch does not apply: $relative"
+ git -C "$work/source/$component" apply "$patch"
+done <"$project_root/device/sensors/preventive-patches.sha256"
 git -C "$work/source/iio-sensor-proxy" apply --check "$iio_claim_patch" ||
 	die 'iio-sensor-proxy preclaimed coldplug patch no longer applies to the pinned source'
 git -C "$work/source/iio-sensor-proxy" apply "$iio_claim_patch"
@@ -269,15 +278,6 @@ build_one() {
 	meson compile -C "/build/work/$name" -j "$jobs"
 }
 
-tests_passed() {
-	name=$1
-	expected=$2
-	log=/build/work/$name/meson-logs/testlog.txt
-	[ -f "$log" ] || return 1
-	[ "$(grep -c '^result: *exit status 0$' "$log" || true)" = "$expected" ] || return 1
-	[ "$(grep -c '^result: *exit status [^0]' "$log" || true)" = 0 ] || return 1
-}
-
 testlog_passed() {
 	log=$1
 	expected=$2
@@ -287,19 +287,15 @@ testlog_passed() {
 }
 
 build_one hexagonrpc -Dhexagonrpcd_verbose=false
-if tests_passed hexagonrpc 5; then
-	printf '%s\n' 'hexagonrpc: retaining current 5/5 PASS testlog'
-else
-	meson test -C /build/work/hexagonrpc --print-errorlogs --timeout-multiplier=4
-fi
+meson test -C /build/work/hexagonrpc --print-errorlogs --timeout-multiplier=4
 DESTDIR=/build/dest meson install -C /build/work/hexagonrpc
 
 build_one libssc
-if tests_passed libssc 7; then
-	printf '%s\n' 'libssc: retaining current 7/7 PASS testlog'
-else
-	meson test -C /build/work/libssc --print-errorlogs --timeout-multiplier=4
-fi
+meson test -C /build/work/libssc --print-errorlogs --timeout-multiplier=4
+# Exercise the upstream mock runner itself: a failed child must not turn green.
+child_status=0
+/build/work/libssc/mocking/ssc_server/ssc-server "sh -c 'exit 7' # no-service" || child_status=$?
+[ "$child_status" = 7 ] || { echo "ssc-server lost child exit status: $child_status" >&2; exit 1; }
 DESTDIR=/build/dest meson install -C /build/work/libssc
 cp -a /build/dest/usr/. /usr/
 ldconfig
@@ -489,6 +485,7 @@ cp "$registry_manifest" "$dest/$device_prefix/sensors/config.SHA256SUMS"
 ln -sfn /var/lib/liuqin-sensors/registry "$dest/$device_prefix/sensors/registry"
 install -d "$dest/usr/share/doc/liuqin"
 cp "$source_manifest" "$dest/usr/share/doc/liuqin/sensor-stack-sources.manifest"
+cp "$project_root/device/sensors/preventive-patches.json" "$project_root/device/sensors/preventive-patches.sha256" "$dest/usr/share/doc/liuqin/"
 {
 	printf '%s  %s\n' "$expected_hexagonrpc_patch_sha256" "${hexagonrpc_patch##*/}"
 	printf '%s  %s\n' "$expected_hexagonrpc_sns_patch_sha256" "${hexagonrpc_sns_patch##*/}"
