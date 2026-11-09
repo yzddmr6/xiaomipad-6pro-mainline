@@ -308,3 +308,18 @@ with tempfile.TemporaryDirectory() as directory:
           reads.index('current_state') < reads.index('adapter_svid') < reads.index('data_role'))
 
 print('Role-first ordering and fail-closed checks passed; not a protocol test.')
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('authentic', '0')
+    fixture.set('slave_authentic', '0')
+    def detach_in_battery(_root):
+        fixture.online = False
+        fixture.attach = 'different-partner'
+    auth.enable_battery_auth = detach_in_battery
+    try:
+        fixture.run_main()
+    except auth.UnsupportedChargerError:
+        pass
+    check('detach during fuel-gauge work cannot swap the new partner role',
+          fixture.role() == DEVICE_ROLE and not fixture.events and not auth.pd_verified(str(fixture.root)))

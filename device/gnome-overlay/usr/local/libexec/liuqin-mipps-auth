@@ -579,6 +579,7 @@ def role_first_prelude(root):
     if not (node_is_one(root, "authentic") and node_is_one(root, "slave_authentic")):
         enable_battery_auth(root)
 
+    require_current_attach()
     port = find_typec_port()
     if not port:
         print("role_first=no_typec_port")
@@ -596,6 +597,7 @@ def role_first_prelude(root):
 
     if "[host]" not in role:
         time.sleep(ROLE_REQUEST_DELAY)
+        require_current_attach()
         print("role_request=begin")
         returncode, stderr = request_host_data_role(port, ROLE_REQUEST_TIMEOUT)
         try:
