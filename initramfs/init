@@ -522,10 +522,10 @@ storage_native_root_ok() {
 	for storage_native_executable in \
 		/usr/lib/systemd/systemd /usr/sbin/gdm3 /usr/bin/gnome-shell \
 		/usr/bin/hexagonrpcd \
-		/usr/local/bin/busybox /usr/local/bin/liuqin-shell \
+		/usr/local/bin/busybox /usr/sbin/liuqin-devmode \
 		/usr/libexec/iio-sensor-proxy \
 		/usr/local/sbin/liuqin-gnome-storage-guard \
-		/usr/local/sbin/liuqin-gnome-usb-rescue \
+		/usr/libexec/liuqin/devmode-gadget \
 		/usr/local/libexec/liuqin-power-keyd \
 		/usr/local/libexec/liuqin-power-key-action \
 		/usr/local/sbin/liuqin-bt-public-addr \
@@ -537,7 +537,7 @@ storage_native_root_ok() {
 	for storage_native_regular in \
 		/etc/dconf/db/local.d/locks/00-liuqin-power \
 		/etc/systemd/system/liuqin-gnome-storage-guard.service \
-		/etc/systemd/system/liuqin-gnome-usb-rescue.service \
+		/usr/lib/systemd/system/liuqin-devmode.service \
 		/etc/systemd/system/liuqin-power-keyd.service \
 		/etc/systemd/system/liuqin-backlight-default.service \
 		/etc/systemd/system/bluetooth.service.d/20-liuqin-public-address.conf \
@@ -559,9 +559,6 @@ storage_native_root_ok() {
 	[ ! -e "$storage_checked_root/etc/systemd/system/basic.target.requires/liuqin-snap-root-admission.service" ] &&
 		[ ! -L "$storage_checked_root/etc/systemd/system/basic.target.requires/liuqin-snap-root-admission.service" ] ||
 		storage_native_reject "snap admission still gates basic.target" || return 1
-	[ -L "$storage_checked_root/etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service" ] ||
-		storage_native_reject "USB rescue service is not enabled" || return 1
-	[ "$("$BB" readlink "$storage_checked_root/etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service")" = ../liuqin-gnome-usb-rescue.service ] || return 1
 	[ -L "$storage_checked_root/etc/systemd/system/multi-user.target.wants/liuqin-power-keyd.service" ] ||
 		storage_native_reject "power-key policy is not enabled" || return 1
 	[ "$("$BB" readlink "$storage_checked_root/etc/systemd/system/multi-user.target.wants/liuqin-power-keyd.service")" = ../liuqin-power-keyd.service ] || return 1
@@ -940,6 +937,12 @@ storage_switch_persistent_root() {
 		"$storage_newroot/dev"
 	log "persistent root accepted: switching to LIUQIN_ROOT"
 
+	# This sysfs instance, including the covered OF export, moves into the
+	# real root. PID1 must see it before its first virtualization query.
+	if ! liuqin-physical-platform /sys; then
+		log "PHYSICAL_IDENTITY_CORRECTION_FAILED: continuing to the real root; sysinit will report it"
+	fi
+
 	storage_moved=
 	storage_move_failed=false
 	for storage_mountpoint in /proc /sys /dev; do
@@ -987,9 +990,92 @@ storage_switch_persistent_root() {
 	exec "$BB" switch_root "$storage_newroot" "$storage_init"
 }
 
+# Wait for all six LUNs and a stable device set. Partition numbers vary
+# between capacity variants and installed layouts; only PARTNAME is identity.
+storage_ufs_ready() {
+	for storage_lun in sda sdb sdc sdd sde sdf; do
+		storage_path_is_block "$storage_dev_root/$storage_lun" || return 1
+	done
+	storage_names=' '
+	for storage_info in "$storage_sys_block"/sd*/uevent; do
+		[ -f "$storage_info" ] || continue
+		storage_node=${storage_info%/uevent}; storage_node=${storage_node##*/}
+		storage_path_is_block "$storage_dev_root/$storage_node" || return 1
+		while IFS= read -r storage_property; do
+			case $storage_property in PARTNAME=*) storage_names="$storage_names${storage_property#PARTNAME=} ";; esac
+		done <"$storage_info"
+	done
+	for storage_required in boot_a boot_b persist; do
+		case "$storage_names" in *" $storage_required "*) ;; *) return 1;; esac
+	done
+	case "$storage_names" in
+	*' linux_root '*) case "$storage_names" in *' linux_home '*) ;; *) return 1;; esac ;;
+	*) case "$storage_names" in *' userdata '*) ;; *) return 1;; esac ;;
+	esac
+}
+
+storage_wait_ufs() {
+	found_block=false
+	storage_previous_nodes=
+	storage_stable=0
+	storage_clock=/proc/uptime
+	if [ "${LIUQIN_INIT_STORAGE_TEST_ONLY:-0}" = 1 ]; then
+		storage_clock=${LIUQIN_INIT_TEST_UPTIME:-$storage_clock}
+	fi
+	read -r storage_now storage_idle <"$storage_clock"
+	storage_deadline=$(( ${storage_now%%.*} + 10 ))
+	while :; do
+		"$BB" mdev -s
+		storage_nodes=
+		for storage_node in "$storage_dev_root"/sd*; do
+			storage_path_is_block "$storage_node" || continue
+			found_block=true
+			storage_nodes="$storage_nodes ${storage_node##*/}"
+			"$BB" blockdev --setro "$storage_node" || log "could not seal arriving node: $storage_node"
+		done
+		if [ "$storage_nodes" = "$storage_previous_nodes" ]; then
+			storage_stable=$((storage_stable + 1))
+		else
+			storage_previous_nodes=$storage_nodes
+			storage_stable=1
+		fi
+		if [ "$storage_stable" -ge 3 ] && storage_ufs_ready; then
+			log "UFS LUNs and required partitions present; block set stable for three polls"
+			return 0
+		fi
+		read -r storage_now storage_idle <"$storage_clock"
+		[ "${storage_now%%.*}" -lt "$storage_deadline" ] || {
+			log "UFS readiness timed out; continuing with discovered devices and the read-only guard"
+			return 1
+		}
+		"$BB" sleep 0.1
+	done
+}
+
+# Recovery is an explicit host action through fastboot boot of the installer.
+# Do not leave an unauthenticated channel or loop back into the broken OS.
+boot_failure_to_fastboot() {
+	if ! storage_abort; then
+		log "critical: storage could not be sealed; withholding automatic reboot"
+		return 1
+	fi
+	log "BOOT_FAILED_STORAGE_SEALED: returning to bootloader in 30 seconds"
+	"$BB" sync
+	"$BB" sleep 30
+	liuqin-reboot bootloader
+	log "critical: bootloader restart returned; remaining sealed"
+	return 1
+}
+
 # The mutation test enters only the storage gate.  It uses an isolated fake
 # /dev, sysfs and command PATH, and never reaches the real init sequence.
 if [ "${LIUQIN_INIT_STORAGE_TEST_ONLY:-0}" = 1 ]; then
+	if [ "${LIUQIN_INIT_STORAGE_TEST_PHASE:-}" = wait-ufs ]; then
+		storage_wait_status=0
+		storage_wait_ufs || storage_wait_status=$?
+		printf 'found_block=%s\n' "$found_block"
+		exit "$storage_wait_status"
+	fi
 	storage_mode=persistent
 	if storage_prepare_persistent_root; then
 		case ${LIUQIN_INIT_STORAGE_TEST_PHASE:-prepare} in
@@ -1017,19 +1103,9 @@ hostname liuqin-firstboot
 [ ! -w /proc/sys/kernel/hotplug ] || echo /sbin/mdev >/proc/sys/kernel/hotplug
 mdev -s
 
-log "waiting for SCSI/UFS block devices and marking them read-only"
+log "waiting for the expected UFS LUNs and partitions"
 found_block=false
-for attempt in 1 2 3 4 5 6 7 8 9 10; do
-	mdev -s
-	for blockdev_path in /dev/sd*; do
-		[ -b "$blockdev_path" ] || continue
-		found_block=true
-		if ! blockdev --setro "$blockdev_path"; then
-			log "warning: failed to mark read-only: $blockdev_path"
-		fi
-	done
-	sleep 1
-done
+storage_wait_ufs || true
 
 ufs_safe=false
 if [ "$found_block" != true ]; then
@@ -1083,6 +1159,7 @@ if { [ "$storage_profile" = gnome ] || [ "$storage_profile" = native ]; } && [ "
 	while :; do sleep 60; done
 fi
 
+if [ "$storage_mode" = readonly ] && [ -f "$storage_installer_marker" ]; then
 gadget=/sys/kernel/config/usb_gadget/liuqin
 mkdir -p "$gadget"
 echo 0x1d6b >"$gadget/idVendor"
@@ -1153,6 +1230,7 @@ storage_installer_required='boot_a boot_b persist'
 storage_installer_optional='userdata linux_root linux_home'
 
 start_stage1_telnet() {
+	[ "$storage_mode" = readonly ] && [ -f "$storage_installer_marker" ] || return 1
 	if [ "$ufs_safe" = true ]; then
 		if [ -f "$storage_installer_marker" ]; then
 			mkdir -p "$storage_dev_root/disk/by-partlabel" || return 1
@@ -1231,6 +1309,8 @@ else
 	log "warning: no UDC found; USB networking unavailable"
 fi
 
+fi # dedicated RAM installer USB channel
+
 if [ "$storage_mode" = persistent ] && [ "$ufs_safe" = true ]; then
 	if storage_prepare_persistent_root; then
 		slot_success_ok=true
@@ -1258,24 +1338,21 @@ if [ "$storage_mode" = persistent ] && [ "$ufs_safe" = true ]; then
 		fi
 		if [ "$slot_success_ok" != true ]; then
 			storage_abort || ufs_safe=false
-			[ "$ufs_safe" != true ] || [ ! -e /sys/class/net/usb0 ] || start_stage1_telnet
 		elif ! storage_switch_persistent_root; then
 			if [ "$storage_fallback_safe" = true ]; then
 				storage_lock_all || ufs_safe=false
 			else
 				ufs_safe=false
 			fi
-			[ "$ufs_safe" != true ] || [ ! -e /sys/class/net/usb0 ] || start_stage1_telnet
 		fi
 	else
-		# storage_abort has already restored the fail-closed baseline.  Only
-		# now is it safe to expose the existing RAM rescue shell.
+		# storage_abort restores read-only storage. Recovery requires an explicit
+		# fastboot boot of the installer; never open a shell on a failed boot.
 		if [ "$storage_fallback_safe" = true ]; then
 			storage_lock_all || ufs_safe=false
 		else
 			ufs_safe=false
 		fi
-		[ "$ufs_safe" != true ] || [ ! -e /sys/class/net/usb0 ] || start_stage1_telnet
 	fi
 fi
 
@@ -1437,15 +1514,16 @@ stage2() {
 	exec switch_root /newroot /sbin/init
 }
 
-if [ "$ufs_safe" = true ]; then
+if [ "$storage_mode" = readonly ] && [ -f "$storage_installer_marker" ] && [ "$ufs_safe" = true ]; then
 	stage2 || log "stage 2 failed; falling back to the diagnostic initramfs"
 else
 	log "stage 2 withheld: the read-only guard did not pass"
 fi
 
 log "pstore is available at /sys/fs/pstore; UFS was not mounted"
-log "starting local emergency shell"
-while true; do
-	setsid cttyhack sh
-	sleep 1
-done
+if [ "$storage_mode" = readonly ] && [ -f "$storage_installer_marker" ] && [ "$ufs_safe" = true ]; then
+	log "starting installer local emergency shell"
+	while true; do setsid cttyhack sh; sleep 1; done
+fi
+boot_failure_to_fastboot || true
+while true; do sleep 60; done

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# Developer mode USB NCM link, same contract as initramfs/network.json and the
+# the host, no route, DNS or other servers offered.  Only links with this MAC
+# match, so it does nothing until liuqin-devmode.service creates the gadget;
+# routes and policy rules of other links alone.  NetworkManager ignores the
+# link (NM_UNMANAGED in 71-liuqin.rules).
+[Match]
+MACAddress=02:00:00:66:00:02
+
+[Network]
+Address=192.168.66.2/24
+DHCPServer=yes
+ConfigureWithoutCarrier=yes
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+KeepConfiguration=yes
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=1
+PersistLeases=runtime
+EmitRouter=no
+EmitDNS=no
+EmitNTP=no
+EmitSIP=no
+EmitTimezone=no

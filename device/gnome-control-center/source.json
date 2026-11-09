@@ -9,7 +9,7 @@
   "patches": [
     {
       "path": "device/gnome-control-center/patches/0001-expose-liuqin-power-button-policy.patch",
-      "sha256": "33f941331158904e5842f704166301d1fe25c47330bf669af466f2d8bfc99077"
+      "sha256": "325f91d33b98e3c8bd90b60b78db98bdf5d81fc42c56a3837b718f9b641c12b7"
     },
     {
       "path": "device/gnome-control-center/patches/0002-show-author-on-about-page.patch",

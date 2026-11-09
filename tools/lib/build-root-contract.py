@@ -101,7 +101,13 @@ NATIVE_PINNED_PATHS = (
     "/etc/systemd/system/liuqin-backlight-default.service",
     "/etc/systemd/system/liuqin-bt-preconfigure.service",
     "/etc/systemd/system/liuqin-gnome-storage-guard.service",
-    "/etc/systemd/system/liuqin-gnome-usb-rescue.service",
+    "/usr/lib/systemd/system/liuqin-devmode.service",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh.socket",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh@.service",
+    "/usr/lib/systemd/network/50-liuqin-devmode.network",
+    "/usr/lib/liuqin/devmode/sshd_config",
+    "/etc/liuqin-network",
+    "/etc/udev/rules.d/71-liuqin-devmode.rules",
     "/etc/systemd/system/liuqin-hexagonrpcd-sdsp.service",
     "/etc/systemd/system/liuqin-power-keyd.service",
     "/etc/systemd/system/liuqin-power-keyd.service.d/20-liuqin-session-runtime.conf",
@@ -119,13 +125,13 @@ NATIVE_PINNED_PATHS = (
     "/usr/libexec/iio-sensor-proxy",
     "/usr/libexec/liuqin-ssc-sample-gate",
     "/usr/local/bin/busybox",
-    "/usr/local/bin/liuqin-shell",
+    "/usr/sbin/liuqin-devmode",
     "/usr/local/libexec/liuqin-power-key-action",
     "/usr/local/libexec/liuqin-power-keyd",
     "/usr/local/libexec/liuqin-power-menu",
     "/usr/local/sbin/liuqin-bt-public-addr",
     "/usr/local/sbin/liuqin-gnome-storage-guard",
-    "/usr/local/sbin/liuqin-gnome-usb-rescue",
+    "/usr/libexec/liuqin/devmode-gadget",
     "/usr/local/sbin/liuqin-snap-root-admission",
     "/usr/local/sbin/liuqin-wlan-mac",
     "/usr/share/liuqin/kernel-modules.manifest",
@@ -193,6 +199,18 @@ PROJECT_OWNED_EXACT_PATHS = (
     "/usr/bin/ssccli",
     "/usr/share/qcom/sm8450/Xiaomi/liuqin/sensors/sns_reg_version",
     "/usr/lib/firmware/qcom/sm8450/Xiaomi-Pad-6-Pro-tplg.bin",
+    # Developer mode (liuqin-device-support). The units, network file and
+    # command use the packaged-file locations systemd and sshd expect; no
+    # distribution package ships these names. Pinned so that the key-only
+    # maintenance login always matches the boot image that admits the root.
+    "/usr/lib/systemd/system/liuqin-devmode.service",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh.socket",
+    "/usr/lib/systemd/system/liuqin-devmode-ssh@.service",
+    "/usr/lib/systemd/network/50-liuqin-devmode.network",
+    "/usr/lib/liuqin/devmode/sshd_config",
+    "/usr/libexec/liuqin/devmode-gadget",
+    "/usr/sbin/liuqin-devmode",
+    "/etc/udev/rules.d/71-liuqin-devmode.rules",
 )
 
 

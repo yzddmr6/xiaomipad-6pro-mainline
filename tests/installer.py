@@ -735,3 +735,25 @@ for extra, allowed in ((['--no-backup', '--keep-home'], True),
     else:
         assert allowed, extra
 print('PASS: explicit no-backup mode is limited to an existing keep-home reinstall')
+
+
+# Waiting for the tablet to return to Fastboot addresses only its serial and
+# never runs a command that lists every device on the host.
+assert "'fastboot', 'devices'" not in installer_source
+calls = []
+
+
+def fastboot_probe(answer):
+    def run(argv, **keywords):
+        calls.append(argv)
+        if answer is None:
+            raise subprocess.TimeoutExpired(argv, keywords['timeout'])
+        return SimpleNamespace(returncode=0, stdout=answer)
+    return run
+
+
+for answer, expected in ((None, False), ('product: liuqin\nFinished.', True), ('product: piano\n', False)):
+    with patch.object(installer.subprocess, 'run', side_effect=fastboot_probe(answer)):
+        assert installer.fastboot_answers('SERIAL') is expected, answer
+assert all(argv[:3] == ['fastboot', '-s', 'SERIAL'] for argv in calls), calls
+print('PASS: the Fastboot return wait probes only the tablet\'s own serial')

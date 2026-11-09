@@ -1,0 +1,7 @@
+{
+  "uuid": "liuqin-osk-guard@io.github.liuqin",
+  "name": "Liuqin on-screen keyboard guard",
+  "description": "Stops GNOME Shell 50 from throwing on touch crossing events without an actor while a grab is active (lock screen, login screen, menus and modal dialogs). GNOME Shell 51 removed the affected code.",
+  "shell-version": ["50"],
+  "session-modes": ["user", "unlock-dialog", "gdm", "initial-setup"]
+}

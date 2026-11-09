@@ -430,3 +430,27 @@ if [ -n "$skipped" ]; then
 else
 	printf '%s\n' 'liuqin install-root home tests: PASS'
 fi
+
+# Execute the shipped cleanup after an unmount failure. Every read-only flag
+# must still be attempted, and the operation must remain a failure.
+cat >"$bin/cleanup-bb" <<'BB'
+#!/bin/sh
+printf '%s\n' "$*" >>"$TEST_COMMAND_LOG"
+exit 0
+BB
+chmod +x "$bin/cleanup-bb"
+{
+ printf 'home_mounted=true; mounted=true; opened=true; persist_mounted=true; download_mounted=true\n'
+ printf 'home=/dev/fixture-home; root=/dev/fixture-root; parent=/dev/fixture-disk\n'
+ printf 'sync() { :; }; umount() { echo "umount $*" >>"$TEST_COMMAND_LOG"; return 1; }\n'
+ sed -n '/^cleanup() {/,/^}/p' "$root_source" | sed "s|/bin/busybox|$bin/cleanup-bb|g"
+ printf 'cleanup\n'
+} >"$case_root/cleanup.sh"
+: >"$command_log"
+if TEST_COMMAND_LOG="$command_log" "$shell" $shell_argument "$case_root/cleanup.sh"; then
+ fail 'cleanup reports success after unmount failure'
+fi
+for node in home root disk; do
+ grep -qx "blockdev --setro /dev/fixture-$node" "$command_log" || fail "cleanup omitted $node"
+done
+printf '%s\n' 'PASS: failed unmount still reseals every opened node and reports failure'

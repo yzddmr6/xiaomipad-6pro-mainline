@@ -1,0 +1,81 @@
+{
+  "note": "Original patch authors and trailers retained. libssc and hexagonrpcd/tests: GPL-3.0-or-later; libhexagonrpc: LGPL-3.0-or-later. Preserve upstream per-file license notices. Applies to sources.manifest pins.",
+  "patches": [
+    {
+      "component": "hexagonrpc",
+      "path": "device/sensors/hexagonrpc/patches/0001-fix-type-sequence-marshalling.patch",
+      "source": "device/sensors/hexagonrpc/patches/0001-fix-type-sequence-marshalling.patch",
+      "source_project": "xiaomipad-8pro-mainline",
+      "source_commit": "a9ad827fffe677b5aa6eefb88b3c5965af83a49a",
+      "sha256": "19210c5e2d61f3848b2892787b8d5aa1b812dc433d5fec5b77544ad8d6861655",
+      "source_file_history": "086a34f550a6bab125d0645a99d96f9de5166b68 yzddmr6 <46088090+yzddmr6@users.noreply.github.com>",
+      "source_sha256": "4b252f3ef9602eaadaf6605a8c295d132310d027ac421b92561b80210c8ef61d",
+      "adaptation": "Only Meson test registration context, retaining existing liuqin registry tests and excluding Piano-specific tests."
+    },
+    {
+      "component": "hexagonrpc",
+      "path": "device/sensors/hexagonrpc/patches/0002-avoid-unaligned-metadata-store-and-null-test-comparison.patch",
+      "source": "device/sensors/hexagonrpc/patches/0002-avoid-unaligned-metadata-store-and-null-test-comparison.patch",
+      "source_project": "xiaomipad-8pro-mainline",
+      "source_commit": "a9ad827fffe677b5aa6eefb88b3c5965af83a49a",
+      "sha256": "09d8873f144a2201b7451bac5c27f5ae9e43b05223a34517cc4918d2b55164db",
+      "source_file_history": "086a34f550a6bab125d0645a99d96f9de5166b68 yzddmr6 <46088090+yzddmr6@users.noreply.github.com>"
+    },
+    {
+      "component": "hexagonrpc",
+      "path": "device/sensors/hexagonrpc/patches/0005-upstream-fetch-large-listener-inputs.patch",
+      "source": "device/sensors/hexagonrpc/patches/0005-upstream-fetch-large-listener-inputs.patch",
+      "source_project": "xiaomipad-8pro-mainline",
+      "source_commit": "a9ad827fffe677b5aa6eefb88b3c5965af83a49a",
+      "sha256": "966ed14d37a8601a85efe4c7557372aea676ab63b70871693521669276c93a6a",
+      "source_file_history": "6caa1a7418e2f130cecf497be2f1b012463b540b yzddmr6 <46088090+yzddmr6@users.noreply.github.com>",
+      "source_sha256": "21414c6d27ca93fb561b4d6291e576dc8f29a1ae8284da550c6f6618d2aa3d56",
+      "adaptation": "Meson context and existing liuqin exported dispatcher/strict ROM scalar guard context; no Piano registry policy imported."
+    },
+    {
+      "component": "hexagonrpc",
+      "path": "device/sensors/hexagonrpc/patches/0006-test-and-validate-large-listener-inputs.patch",
+      "source": "device/sensors/hexagonrpc/patches/0006-test-and-validate-large-listener-inputs.patch",
+      "source_project": "xiaomipad-8pro-mainline",
+      "source_commit": "a9ad827fffe677b5aa6eefb88b3c5965af83a49a",
+      "sha256": "981cd4f35ef8f2ab6b951a40f1d753a5dcf7ab544ededa297dd5787946cfaefa",
+      "source_sha256": "65b3581903426ac9a59693c2e18ef4fe970240e9f730c00c107e70627ad82bd9",
+      "adaptation": "Retain liuqin test/dispatcher context. Pinned apps_std is read-only: adapt the imported listener fixture to an explicit byte-validating protocol receiver, retain actual marshaller/listener and all nine continuation scenarios; do not import Piano writable registry policy.",
+      "source_file_history": "6caa1a7418e2f130cecf497be2f1b012463b540b yzddmr6 <46088090+yzddmr6@users.noreply.github.com>"
+    },
+    {
+      "component": "hexagonrpc",
+      "path": "device/sensors/hexagonrpc/patches/0007-liuqin-registry-error-reply-test.patch",
+      "source_project": "xiaomipad-6pro-mainline",
+      "adaptation": "Update existing registry regression for upstream empty error replies.",
+      "sha256": "d919d72011c00428aa5b3c7c58cbec694be923d703cb0cb24ea3b7cc7f45dcc9"
+    },
+    {
+      "component": "libssc",
+      "path": "device/sensors/libssc/patches/0001-propagate-test-process-exit-status.patch",
+      "source": "device/sensors/libssc/patches/0001-propagate-test-process-exit-status.patch",
+      "source_project": "xiaomipad-8pro-mainline",
+      "source_commit": "a9ad827fffe677b5aa6eefb88b3c5965af83a49a",
+      "sha256": "19f705efb23edb0370227b52eb0ad1c895c3debe047d7f36e6bdb533e3fff285",
+      "source_file_history": "32ebbd0905a61bf234c2f9e956708b31794facad yzddmr6 <46088090+yzddmr6@users.noreply.github.com>"
+    },
+    {
+      "component": "libssc",
+      "path": "device/sensors/libssc/patches/0002-libssc-select-the-delivery-and-batching-of-streams-at-run-time.patch",
+      "source": "packaging/sensors/patches/libssc/0001-libssc-select-the-delivery-and-batching-of-streams-at-run-time.patch",
+      "source_project": "onepluspad-2pro-mainline",
+      "source_commit": "c4405547f724eed6aaec00e2674d5f601203d5d6",
+      "sha256": "0d9945fcde4de14a42eef92f0ff6d71d92a301a978bcac596bd29b667205db00",
+      "source_file_history": "3f94f60b843a9e4efb7b747351ac1077e50e529f yzddmr6 <46088090+yzddmr6@users.noreply.github.com>"
+    },
+    {
+      "component": "libssc",
+      "path": "device/sensors/libssc/patches/0003-libssc-choose-the-stream-delivery-by-sensor-type.patch",
+      "source": "packaging/sensors/patches/libssc/0002-libssc-choose-the-stream-delivery-by-sensor-type.patch",
+      "source_project": "onepluspad-2pro-mainline",
+      "source_commit": "c4405547f724eed6aaec00e2674d5f601203d5d6",
+      "sha256": "435d75da463a7615c9c7e9b183f68b4eb011be35b0edc56880fc9f73d72770c1",
+      "source_file_history": "3f94f60b843a9e4efb7b747351ac1077e50e529f yzddmr6 <46088090+yzddmr6@users.noreply.github.com>"
+    }
+  ]
+}

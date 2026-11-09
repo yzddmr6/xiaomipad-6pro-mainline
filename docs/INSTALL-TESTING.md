@@ -2,15 +2,12 @@
 
 [English](INSTALL-TESTING.en.md)
 
-首次安装和首次启动已在 256 GB 机型完成真机验证；128 GB 与 512 GB 变体按
-[安装指南](FLASHING.md)的规则放行但未逐一真机验证。本项目仍属于实验性设备移植，
-安装时请保持有人在场，并准备恢复条件。
+本项目仍属于实验性设备移植。首次安装、首次启动和保留 `/home` 的重装已在 256 GB 机型完成真机验证；
+128 GB 与 512 GB 变体按[安装指南](FLASHING.md)的规则放行，但未经真机验证。安装时请保持有人在场，
+并准备恢复条件。
 
-早先版本的双系统布局已在 256 GB 机型完成真机安装：分区表完成划分，Ubuntu 安装到
-`linux_root`、`/home` 位于 `linux_home`，并从 B 槽正常启动。当前版本让两个系统都从 A 槽启动，
-通过更换 `boot_a` 中的 boot 镜像在两者之间切换（见[双系统切换](#双系统切换)）。
-v0.6.0 已在同一台 256 GB 机型以 `--layout dual --keep-home --no-backup` 完成完整安装、首次设置和用户功能确认；A/B 启动镜像回读一致，原 `/home` 保留。此前已验证原厂固件修复后的 Android 首次启动及调试 Android 下 KernelSU 脚本往返；普通 Android 下的 KernelSU 自动加载与 WebUI 按钮仍未单独验收。
-单系统布局与双系统共用同一布局引擎，但尚未在真机上安装。两者均应按有人在场的实验流程对待。
+双系统布局让两个系统都从 A 槽启动，通过更换 `boot_a` 中的 boot 镜像在两者之间切换
+（见[双系统切换](#双系统切换)）。单系统布局与双系统共用同一布局引擎，但尚未在真机上安装。
 
 ## 分区布局
 
@@ -163,6 +160,32 @@ USB 网络通常通过 DHCP 配置；必要时可用 `--host-address` 指定主�
 安装 RAM 环境的救援 shell 没有身份认证，只能使用可信的直连 USB，不要接入共享网络。
 失败后先保留报错与备份，确认已完成哪些步骤，不要直接反复重跑。
 
+## 升级已安装的系统
+
+项目内核与设备组件随安装包整体更新。已经安装早先版本的平板，用新版安装包执行保留 `/home` 的重装：
+平板先进入 Fastboot（关机后按住电源键与音量减），再在安装包目录中运行：
+
+```sh
+python3 install.py --bundle . --serial DEVICE_SERIAL \
+  --backup /path/to/new-private-backup --erase-userdata --layout dual \
+  --rom-dir /path/to/extracted-stock-rom --android-boot /path/to/boot-ksu.img \
+  --keep-home
+```
+
+单系统布局把 `--layout dual` 换成 `--layout linux-only`，并去掉 `--rom-dir` 与 `--android-boot`。
+双系统布局下省略 `--android-boot` 时，保存的是 ROM 自带的 `boot.img`；之前使用 KernelSU 镜像的，
+仍传入同一个镜像（可用 `tools/patch-android-boot-ksu.py` 从原厂 `boot.img` 重新生成）。
+
+重装只重建 Ubuntu 系统分区 `linux_root`：
+
+- 保留：`/home`，普通用户账户及其所属的系统组，账户资料与头像，NetworkManager 连接，蓝牙配对，时区与设备名称。
+  重装后直接回到原来的登录界面，使用原来的密码。
+- 不保留：指纹模板（需要在「设置 → 用户」重新录入），系统分区上自行安装的软件包与修改过的系统配置。
+- Android 的 `userdata` 与 `metadata` 不受影响。
+
+新系统里已有同名或同 UID/GID 的账户或组时，安装器在格式化之前停止，不覆盖系统账户。
+旧系统分区不可读或账户文件异常时，安装器明确提示，重装后需要重新走首次设置。
+
 ## 重装与调整切分比例
 
 对已经是本布局的平板，安装器拒绝调整分区尺寸。尺寸无法原地修改，
@@ -265,10 +288,9 @@ Fastboot 只写入发送的字节，而 `liuqin-switch` 按整个分区识别 `b
 
 切换工具无法拦截的写入中断（例如断电）会导致相同的结果，修复方法相同。
 
-**验证状态。** 切换工具的判定与校验逻辑已由主机侧测试覆盖，这些测试以普通文件代替分区运行。
-两个方向的切换、Android 侧的只读挂载，以及切换后任一系统从 A 槽冷启动，均尚未在平板上执行。
-早先版本中 Ubuntu 曾从 B 槽启动；从 A 槽启动时 Bootloader 会搭配 A 槽的原厂 `dtbo_a` 与
-`vbmeta_a`，这一组合尚未测试。
+**验证状态。** 切换工具的判定与校验逻辑由主机侧测试覆盖，这些测试以普通文件代替分区运行。
+真机上已验证修复原厂固件后的 Android 首次启动，以及在调试 Android 下用 KernelSU 模块脚本在两个系统之间往返；
+普通 Android 启动下 KernelSU 自动加载模块与管理器 WebUI 按钮尚未单独验证。
 
 **升级早先的双系统安装。** 早先版本的安装从 B 槽启动 Ubuntu，且没有切换存储区。
 使用当前版本重装系统并保留 `/home`，即可迁移到新方案：
@@ -301,20 +323,27 @@ Android 无法从 B 槽启动，该更新还会破坏 Ubuntu boot 镜像的回�
 双系统建成后运行它会覆盖 Ubuntu 的启动链，使平板退回到只有 Android 的状态。
 `flash_all_lock.sh` 与 `flash_all_except_storage.sh` 同理。
 
-## 桌面诊断
+## 开发者模式
 
-有人在场的安装测试可在安装命令后添加 `--enable-rescue`，让救援通道从首次启动即可使用。
-该选项会开放免认证 root 访问，仅适用于可信连接；默认安装不启用。
+开发者模式提供经 USB 线的 root SSH 登录，只接受密钥，默认关闭。有人在场的安装可在安装命令后添加
+`--enable-rescue`：安装器写入主机的 SSH 公钥（默认 `~/.ssh/id_ed25519.pub`，可用 `--ssh-public-key`
+指定），首次启动即可登录。保留数据重装时，若原系统已开启开发者模式，新系统继续开启并保留原有公钥。
 
-也可以在平板上手动开启：
+也可以在平板上开启或关闭：
 
 ```sh
-sudo liuqin-rescue on
+sudo liuqin-devmode on
+sudo liuqin-devmode off
 ```
 
-使用 `liuqin-rescue status` 查看状态。开启后，`192.168.7.2:2323` 提供救援访问，重启后仍然有效。
-不要将此端口转发或暴露到其他网络。诊断结束后，在平板上执行 `sudo liuqin-rescue off` 关闭通道；
-现有救援连接也会断开。
+用 `liuqin-devmode status` 查看状态；公钥位于平板的 `/etc/liuqin/devmode/authorized_keys`。开启后平板在
+USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。在主机的项目目录中连接：
+
+```sh
+python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
+```
+
+只在可信的直连 USB 上使用；诊断结束后执行 `sudo liuqin-devmode off`。
 
 ## 已知问题
 
@@ -339,6 +368,6 @@ Android 恢复路线仍待独立真机验证，不应将 Ubuntu 安装通过等�
 
 已有受支持的 split 布局时，可在 `--keep-home` 重装命令中用 `--no-backup` 替代 `--backup 路径`，明确跳过启动分区、persist 与 GPT 备份。该选项不允许首次分区或恢复分区表。默认安装仍执行备份。
 
-`--keep-home` 只保留独立 `/home`，仍会重建 Ubuntu 系统分区，旧账号配置与系统中的指纹模板/凭据会清除；首次设置时需重新创建账号并录入指纹。
+`--keep-home` 保留独立 `/home`，重建 Ubuntu 系统分区前只读提取普通用户（UID/GID 1000–59999）、系统组中的附加成员关系、AccountsService 用户资料与头像、NetworkManager 连接、蓝牙配对、时区和设备名称，并在新根恢复；正常情况下直接回到原登录界面。新根有同名或同 UID/GID 账户/组时，在格式化前停止，不覆盖系统账户。旧根缺失、不可读或账户格式异常时，安装器明确提示回退到首次设置，需要重新创建账号。指纹模板和凭据不迁移，仍需重新录入。
 
 本版完整包同时附带 `liuqin_boot_ubuntu-v0.3.zip`、`dualboot-tools.zip` 和公开指纹构建输入；正常使用指纹无需再安装单独应用。解压 `dualboot-tools.zip` 后可按本文命令获取、校验 KernelSU 上游组件并生成 Android boot。

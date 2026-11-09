@@ -1,0 +1,25 @@
+From: yzddmr6 <46088090+yzddmr6@users.noreply.github.com>
+Subject: [PATCH] tests: expect an empty error reply for an unsupported registry method
+
+The imported listener change answers unsupported methods with an empty reply
+instead of terminating the transport. Update the existing liuqin ROM registry
+regression to require that error and free its reply. The strict scalar guard
+and the property allowlist assertions remain unchanged.
+
+License: same as the existing liuqin hexagonrpc registry test.
+
+--- a/tests/test_sns_registry.c
++++ b/tests/test_sns_registry.c
+@@ -195,8 +195,10 @@
+ 	sc = REMOTE_SCALARS_MAKE(1, 2, 1);
+ 	result = invoke_property(property0, PROPERTY_VALUE_MAX, sc,
+ 				 &dispatch_ret, &returned);
+-	if (!dispatch_ret || result != AEE_EUNSUPPORTED || returned != NULL)
+-		fail("method 1 was not rejected by the one-method interface");
++	if (dispatch_ret || result != AEE_EUNSUPPORTED || returned == NULL
++	 || returned[0].s != 0 || returned[0].p != NULL)
++		fail("method 1 did not receive an empty unsupported reply");
++	iobuf_free(1, returned);
+ 
+ 	sc = REMOTE_SCALARS_MAKE(0, 2, 2);
+ 	result = invoke_property(property0, PROPERTY_VALUE_MAX, sc,

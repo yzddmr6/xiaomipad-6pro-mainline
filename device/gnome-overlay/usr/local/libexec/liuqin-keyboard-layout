@@ -1,0 +1,109 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Translate IBus' 'default' sentinel before Ubuntu's keyboard file writer."""
+import os
+from pathlib import Path
+import re
+import shlex
+import sys
+import subprocess
+import tempfile
+
+KEYBOARD = Path('/etc/default/keyboard')
+SYMBOLS = Path('/usr/share/X11/xkb/symbols')
+WRITERS = ('/usr/libexec/gnome-initial-setup-set-debian-keyboard',
+           '/usr/libexec/gnome-control-center-set-debian-keyboard')
+
+
+def current():
+    values = {}
+    for line in KEYBOARD.read_text().splitlines():
+        key, sep, value = line.partition('=')
+        if sep and key in ('XKBLAYOUT', 'XKBVARIANT', 'XKBOPTIONS'):
+            words = shlex.split(value, comments=True)
+            values[key] = words[0] if words else ''
+    return values
+
+
+def normalize(layouts, variants, fallback=None):
+    if not re.fullmatch(r'[A-Za-z0-9,_:-]*', layouts + variants):
+        raise ValueError('invalid keyboard layout or variant')
+    result = []
+    variant_list = variants.split(',')
+    for i, layout in enumerate(layouts.split(',')):
+        # IBus means "use the existing XKB layout"; this is not symbols/default.
+        if layout in ('', 'default'):
+            continue
+        if not (SYMBOLS / layout).is_file():
+            raise ValueError('unknown XKB layout: ' + layout)
+        variant = variant_list[i] if i < len(variant_list) else ''
+        if variant == 'default':
+            variant = ''
+        pair = (layout, variant)
+        if pair not in result:
+            result.append(pair)
+    if not result:
+        return normalize(*fallback) if fallback else ('us', '')
+    return ','.join(p[0] for p in result), ','.join(p[1] for p in result)
+
+
+def main(argv):
+    if argv == ['--migrate']:
+        if not KEYBOARD.exists():
+            return 0
+        saved = current()
+        if 'default' not in saved.get('XKBLAYOUT', '').split(','):
+            return 0
+        layouts, variants = normalize(saved.get('XKBLAYOUT', ''), saved.get('XKBVARIANT', ''))
+        # A maintainer script must not run dpkg-reconfigure under dpkg's own
+        # frontend lock. Update the file atomically, then synchronize debconf
+        # and the console cache directly; ordinary GUI changes still use the
+        # diverted distribution writer below.
+        metadata = KEYBOARD.stat()
+        text = KEYBOARD.read_text()
+        for key, value in (('XKBLAYOUT', layouts), ('XKBVARIANT', variants)):
+            line = f'{key}="{value}"'
+            if re.search(r'^' + key + '=', text, re.M):
+                text = re.sub(r'^' + key + r'=.*$', line, text, flags=re.M)
+            else:
+                text = text.rstrip() + '\n' + line + '\n'
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', dir=KEYBOARD.parent,
+                                             prefix='.liuqin-keyboard-', delete=False) as stream:
+                temporary = stream.name
+                os.fchmod(stream.fileno(), metadata.st_mode & 0o777)
+                os.fchown(stream.fileno(), metadata.st_uid, metadata.st_gid)
+                stream.write(text)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, KEYBOARD)
+            temporary = None
+        finally:
+            if temporary:
+                os.unlink(temporary)
+        result = subprocess.run(['debconf-communicate', 'keyboard-configuration'],
+                                input=f'SET keyboard-configuration/layoutcode {layouts}\n'
+                                      f'SET keyboard-configuration/variantcode {variants}\n',
+                                text=True, capture_output=True, check=True)
+        if any(not line.startswith('0 ') for line in result.stdout.splitlines()):
+            raise ValueError('keyboard debconf synchronization failed: ' + result.stdout)
+        subprocess.run(['setupcon', '--save-only'], check=True)
+        return 0
+    else:
+        if len(argv) not in (3, 4) or argv[0] not in WRITERS:
+            raise ValueError('expected a known keyboard writer, layouts, variants and optional options')
+        writer, layouts, variants, *options = argv
+        saved = current()
+        layouts, variants = normalize(layouts, variants,
+                                       (saved.get('XKBLAYOUT', 'us'), saved.get('XKBVARIANT', '')))
+        args = [layouts, variants, *options]
+    # Keep the distribution's atomic write, debconf and console-setup integration.
+    os.execv(writer + '.liuqin-orig', [writer + '.liuqin-orig', *args])
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        sys.exit(str(error))

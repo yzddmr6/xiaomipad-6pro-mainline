@@ -23,7 +23,13 @@ set -eu
 
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out_dir=${OUT_DIR:-"$project_root/out/liuqin-debs"}
-version=${LIUQIN_DEB_VERSION:-0.1}
+# The release version of the device packages lives in VERSION and is bumped
+# with every release; LIUQIN_DEB_VERSION overrides it for test builds only.
+version=${LIUQIN_DEB_VERSION:-$(cat "$project_root/VERSION")}
+case $version in
+[0-9]*.[0-9]*.[0-9]*) ;;
+*) printf 'build-liuqin-debs: invalid package version: %s\n' "$version" >&2; exit 1 ;;
+esac
 maintainer='yzddmr6 <46088090+yzddmr6@users.noreply.github.com>'
 
 firmware_tree=${FIRMWARE_TREE:-"$project_root/device/firmware"}
@@ -227,6 +233,7 @@ PY
 		"$guard"
 	grep -qx 'marker=/etc/liuqin-native-root' "$guard" ||
 		die 'storage guard native marker rewrite did not land'
+	install -D -m 0755 "$project_root/device/platform/liuqin-physical-platform" "$root/usr/local/libexec/liuqin-physical-platform"
 	# Compiled helpers, same deterministic flags as the device-layer builder.
 	mkdir -p "$root/usr/local/libexec"
 	LC_ALL=C SOURCE_DATE_EPOCH=0 "$power_key_cc" \
@@ -290,18 +297,31 @@ PY
 		chmod 0644 "$root/usr/share/liuqin/power/gschemas.compiled"
 	fi
 	mkdir -p "$root/DEBIAN"
-	write_divert_preinst "$pkg" /usr/bin/gnome-control-center
-	write_divert_postrm "$pkg" /usr/bin/gnome-control-center
+	write_divert_preinst "$pkg" /usr/bin/gnome-control-center \
+		/usr/libexec/gnome-initial-setup-set-debian-keyboard \
+		/usr/libexec/gnome-control-center-set-debian-keyboard
+	write_divert_postrm "$pkg" /usr/bin/gnome-control-center \
+		/usr/libexec/gnome-initial-setup-set-debian-keyboard \
+		/usr/libexec/gnome-control-center-set-debian-keyboard
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ]; then\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl daemon-reload || :; fi\n'
 		printf '\tif command -v dconf >/dev/null; then dconf update || :; fi\n'
+		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
+		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
+		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
+		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
+		printf '\trm -f /etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service /etc/systemd/system/liuqin-gnome-usb-rescue.service\n'
+		printf '\tsystemctl enable liuqin-physical-platform.service\n'
+		printf '\t/usr/local/libexec/liuqin-keyboard-layout --migrate\n'
+		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
+		printf '\tprintf "CHASSIS=tablet\\n" >>/etc/machine-info\n'
 		printf 'fi\n'
 	} >"$root/DEBIAN/postinst"
 	cp "$work/$pkg.preinst" "$root/DEBIAN/preinst"
 	cp "$work/$pkg.postrm" "$root/DEBIAN/postrm"
 	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0)' \
-		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, rescue shell, power panel'
+		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, key-only USB maintenance, power panel'
 }
 
 build_sensors() {

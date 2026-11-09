@@ -128,16 +128,16 @@ def cache_store(cache: dict, name: str, fp: dict, artifact: Path) -> None:
 
 def rebuild_sensors(out_dir: Path) -> Path:
     tar = out_dir / 'artifacts/sensor-stack.tar'
-    env = dict(os.environ, UPDATE_APT='1', OUT_DIR=str(out_dir))
-    subprocess.run(['sudo', '-n', 'sh', 'tools/build-liuqin-sensors-stack.sh'],
-                   cwd=PROJECT, env=env, check=True)
+    # sudo resets the environment, so the builder settings go on its command line.
+    subprocess.run(['sudo', '-n', 'env', 'UPDATE_APT=1', f'OUT_DIR={out_dir}',
+                    'sh', 'tools/build-liuqin-sensors-stack.sh'], cwd=PROJECT, check=True)
     return tar
 
 
 def rebuild_settings(out_dir: Path) -> Path:
-    subprocess.run(['python3', 'tools/build-liuqin-settings.py', '--prepare-only'],
-                   cwd=PROJECT, check=True)
-    subprocess.run(['sudo', '-n', 'python3', 'tools/build-liuqin-settings.py',
+    subprocess.run(['python3', 'tools/build-liuqin-settings.py', '--prepare-only',
+                    '--out', str(out_dir)], cwd=PROJECT, check=True)
+    subprocess.run(['sudo', '-n', 'python3', 'tools/build-liuqin-settings.py', '--out', str(out_dir),
                     '--jobs', str(os.cpu_count() or 8)], cwd=PROJECT, check=True)
     return out_dir / 'gnome-control-center'
 
@@ -214,6 +214,10 @@ def cmd_check() -> None:
 
 def cmd_run() -> None:
     cache, plan = gather()
+    # Create the shared parent as the invoking user; the privileged sensor
+    # builder below would otherwise create it as root and lock out the
+    # unprivileged topology and firmware steps.
+    PREPARED.mkdir(parents=True, exist_ok=True)
 
     sensors_work = PROJECT / 'out/prepared-inputs/sensors'
     if plan['sensors']['hit']:

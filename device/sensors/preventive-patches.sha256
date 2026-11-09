@@ -1,0 +1,8 @@
+19210c5e2d61f3848b2892787b8d5aa1b812dc433d5fec5b77544ad8d6861655  hexagonrpc/patches/0001-fix-type-sequence-marshalling.patch
+09d8873f144a2201b7451bac5c27f5ae9e43b05223a34517cc4918d2b55164db  hexagonrpc/patches/0002-avoid-unaligned-metadata-store-and-null-test-comparison.patch
+966ed14d37a8601a85efe4c7557372aea676ab63b70871693521669276c93a6a  hexagonrpc/patches/0005-upstream-fetch-large-listener-inputs.patch
+981cd4f35ef8f2ab6b951a40f1d753a5dcf7ab544ededa297dd5787946cfaefa  hexagonrpc/patches/0006-test-and-validate-large-listener-inputs.patch
+d919d72011c00428aa5b3c7c58cbec694be923d703cb0cb24ea3b7cc7f45dcc9  hexagonrpc/patches/0007-liuqin-registry-error-reply-test.patch
+19f705efb23edb0370227b52eb0ad1c895c3debe047d7f36e6bdb533e3fff285  libssc/patches/0001-propagate-test-process-exit-status.patch
+0d9945fcde4de14a42eef92f0ff6d71d92a301a978bcac596bd29b667205db00  libssc/patches/0002-libssc-select-the-delivery-and-batching-of-streams-at-run-time.patch
+435d75da463a7615c9c7e9b183f68b4eb011be35b0edc56880fc9f73d72770c1  libssc/patches/0003-libssc-choose-the-stream-delivery-by-sensor-type.patch

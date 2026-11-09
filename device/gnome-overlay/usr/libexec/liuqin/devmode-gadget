@@ -1,0 +1,90 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# USB gadget of the liuqin developer mode: one CDC NCM function bound to the
+# single USB device controller.  The USB identity and both MAC addresses are
+# liuqin-specific /etc/liuqin-network and development USB IDs 1d6b:1041.
+# There is no console, timer or DHCP daemon here: systemd-networkd configures
+# the address and the one-host lease (50-liuqin-devmode.network) and
+# liuqin-devmode-ssh.socket accepts SSH logins.
+# usage: devmode-gadget start|stop    (run by liuqin-devmode.service)
+set -eu
+configfs=/sys/kernel/config/usb_gadget
+g=$configfs/liuqin-devmode
+f=$g/functions/ncm.usb0
+c=$g/configs/c.1
+
+die() { echo "liuqin-devmode: $*" >&2; exit 1; }
+
+stop() {
+	[ -d "$g" ] || return 0
+	if [ -n "$(cat "$g/UDC")" ]; then
+		echo '' >"$g/UDC"
+	fi
+	if [ -L "$c/ncm.usb0" ]; then
+		rm "$c/ncm.usb0"
+	fi
+	# configfs removes attribute files with their directory; children first.
+	for d in "$c/strings/0x409" "$c" "$f" "$g/strings/0x409" "$g"; do
+		if [ -d "$d" ]; then
+			rmdir "$d"
+		fi
+	done
+}
+
+serial() {
+	read -r cmdline </proc/cmdline
+	for arg in $cmdline; do
+		case "$arg" in androidboot.serialno=?*) echo "liuqin-${arg#*=}"; return ;; esac
+	done
+	if [ -r /proc/bootconfig ]; then
+		s=$(sed -n 's/^androidboot\.serialno = "\(..*\)"$/\1/p' /proc/bootconfig)
+		if [ -n "$s" ]; then
+			echo "liuqin-$s"
+			return
+		fi
+	fi
+	echo liuqin-devmode
+}
+
+start() {
+	[ -d "$configfs" ] || die "USB gadget configfs $configfs is not available"
+	# shellcheck source=/dev/null # generated from device/devmode-network.json
+	. /etc/liuqin-network
+	if [ -d "$g" ]; then
+		if [ -n "$(cat "$g/UDC")" ] && [ "$(cat "$f/dev_addr")" = "$LIUQIN_DEVICE_MAC" ]; then
+			echo "liuqin-devmode: gadget already bound to $(cat "$g/UDC")"
+			return 0
+		fi
+		# Left unbound by an interrupted start or stop: rebuild it.
+		stop
+	fi
+	set -- /sys/class/udc/*
+	[ -e "$1" ] || die 'no USB device controller in /sys/class/udc (is the port in host role?)'
+	[ "$#" -eq 1 ] || die "more than one USB device controller: $*"
+	udc=${1##*/}
+	for other in "$configfs"/*/UDC; do
+		if [ -e "$other" ] && [ "$(cat "$other")" = "$udc" ]; then
+			die "USB device controller $udc is already used by gadget ${other%/UDC}; developer mode does not take it over"
+		fi
+	done
+	mkdir "$g" "$g/strings/0x409" "$c" "$c/strings/0x409" "$f"
+	# Linux Foundation development IDs, as in usb-diag; not a product identity.
+	echo 0x1d6b >"$g/idVendor"
+	echo 0x1041 >"$g/idProduct"
+	serial >"$g/strings/0x409/serialnumber"
+	echo 'liuqin Linux development' >"$g/strings/0x409/manufacturer"
+	echo 'Developer mode' >"$g/strings/0x409/product"
+	echo 'NCM developer mode' >"$c/strings/0x409/configuration"
+	echo 500 >"$c/MaxPower"
+	echo "$LIUQIN_DEVICE_MAC" >"$f/dev_addr"
+	echo "$LIUQIN_HOST_MAC" >"$f/host_addr"
+	ln -s "$f" "$c/ncm.usb0"
+	echo "$udc" >"$g/UDC"
+	echo "liuqin-devmode: NCM gadget bound to $udc, device $LIUQIN_DEVICE_IP ($LIUQIN_DEVICE_MAC), host $LIUQIN_HOST_IP ($LIUQIN_HOST_MAC)"
+}
+
+case "${1-}" in
+start) start ;;
+stop) stop ;;
+*) echo 'usage: devmode-gadget start|stop' >&2; exit 2 ;;
+esac

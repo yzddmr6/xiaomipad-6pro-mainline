@@ -1,0 +1,15 @@
+[Unit]
+Description=LiUQIN dual fuel-gauge authentication
+Documentation=https://github.com/yzddmr6/xiaomipad-6pro-mainline/blob/main/docs/FASTCHARGE.md
+ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/verify_digest
+Before=liuqin-mipps-auth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flock -w 35 /run/liuqin-mipps-auth.lock \
+          /usr/local/libexec/liuqin-mipps-auth --battery-auth-only
+TimeoutStartSec=80
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -53,12 +53,11 @@ Base: Ubuntu 1:50.0-0ubuntu6 with its complete Debian patch series
    g_clear_object (&self->gsd_settings);
    g_clear_object (&self->session_settings);
    g_clear_object (&self->interface_settings);
-@@ -1435,6 +1452,26 @@
+@@ -1435,6 +1452,23 @@
                                                GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
  
    self->chassis_type = cc_hostname_get_chassis_type (cc_hostname_get_default ());
-+  /* Qualcomm's firmware hypervisor can make hostname1 report "vm" for
-+   * this physical tablet. The installed platform policy identifies it. */
++  /* Load the platform duration-handler settings. */
 +  {
 +    g_autoptr (GSettingsSchemaSource) platform_source = NULL;
 +    g_autoptr (GSettingsSchema) schema = NULL;
@@ -72,8 +71,6 @@ Base: Ubuntu 1:50.0-0ubuntu6 with its complete Debian patch series
 +    if (schema)
 +      {
 +        self->platform_power_settings = g_settings_new_full (schema, NULL, NULL);
-+        g_free (self->chassis_type);
-+        self->chassis_type = g_strdup ("tablet");
 +      }
 +  }
 +

@@ -185,6 +185,22 @@ def command(address, text, timeout=60):
         raise RuntimeError('RAM command timed out or connection closed; installation stopped')
 
 
+def fastboot_answers(serial, timeout=5):
+    """True once the tablet with this serial answers in Fastboot.
+
+    Only this serial is addressed: no command lists or touches any other
+    device on the host. While the tablet is absent, fastboot waits for it,
+    so each probe is bounded by a timeout.
+    """
+    try:
+        result = subprocess.run(['fastboot', '-s', serial, 'getvar', 'product'],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return result.returncode == 0 and re.search(r'\bproduct:\s*liuqin\b', result.stdout) is not None
+
+
 def parse_arguments(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bundle', type=Path, required=True)
@@ -204,7 +220,7 @@ def parse_arguments(argv=None):
     parser.add_argument('--root-size', help='linux_root size as NNG or NN%% (default 32G); '
                                             'linux_home takes the remainder')
     parser.add_argument('--keep-home', action='store_true',
-                        help='Reinstall the system on an existing split layout and keep linux_home')
+                        help='Reinstall and retain home, ordinary accounts, network connections, Bluetooth pairing, time zone and host name')
     parser.add_argument('--rom-dir', type=Path,
                         help='Extracted stock Fastboot ROM directory; required by --layout dual')
     parser.add_argument('--android-boot', type=Path, metavar='IMG',
@@ -217,7 +233,8 @@ def parse_arguments(argv=None):
     parser.add_argument('--yes', action='store_true', help='Skip the interactive data-erasure confirmation')
     parser.add_argument('--allow-unverified', action='store_true', help='Explicitly test an offline-only bundle')
     parser.add_argument('--enable-rescue', action='store_true',
-                        help='Enable unauthenticated root rescue access after installation (trusted USB only)')
+                        help='Enable USB developer mode and provision the host SSH public key')
+    parser.add_argument('--ssh-public-key', type=Path, help='Public key for --enable-rescue (default: host ed25519 key)')
     return parser, parser.parse_args(argv)
 
 
@@ -521,6 +538,8 @@ def main(argv=None):
             raise RuntimeError('Installer kernel does not match this bundle'
                                ' —— 安装器内核与包不匹配，请使用同一发布包内的全部文件')
         if restore is not None:
+            remote(shlex.join(['sh', '/usr/lib/liuqin/install-preflight.sh', boot_id,
+                               str(12 * layout.DEVICE_SECTOR_SIZE)]), 180)
             restore_partition_table(remote, device_layout, restore, args.serial)
             remote("(sleep 2; /usr/sbin/liuqin-reboot bootloader) >/dev/null 2>&1 &")
             print('Stock partition table restored. The tablet is returning to Fastboot.')
@@ -552,6 +571,19 @@ def main(argv=None):
                 'this partition table is neither the factory layout nor one this installer created;'
                 ' refusing to change it —— 分区表无法识别，拒绝修改。'
                 ' 可用 --restore-partition-table 恢复出厂分区表')
+        if state == 'split':
+            old_root = device_layout('find', layout.ROOT_NAME).strip()
+            prior = remote(shlex.join(['sh', '/usr/lib/liuqin/install-devmode.sh',
+                                      'inspect', old_root])).decode().strip()
+            if prior == 'enabled':
+                args.enable_rescue = True
+                print('Migrating previous maintenance access to key-only USB developer mode.')
+        if args.enable_rescue:
+            key = developer_public_key(args.ssh_public_key)
+            stage_blob(remote, 'devmode-key', key)
+            staged = LAYOUT_WORK + '/liuqin-gpt-devmode-key.b64'
+            remote('umask 077; mkdir -p /run/liuqin-devmode; /bin/busybox base64 -d ' +
+                   shlex.quote(staged) + ' >>/run/liuqin-devmode/authorized_keys && rm -f ' + shlex.quote(staged))
         if state == 'stock' and args.keep_home:
             raise RuntimeError(
                 'the tablet still carries the factory partition table, so there is no linux_home'
@@ -563,6 +595,9 @@ def main(argv=None):
                     ' system and keep linux_home. Changing the split requires restoring the stock'
                     ' partition table and installing again —— 已有分区布局不支持原地调整尺寸')
             print('Reinstalling on the existing split layout; linux_home is left untouched.')
+            print('Before formatting, preserve ordinary accounts, NetworkManager connections, Bluetooth'
+                  ' pairing, time zone and host name from the old root when readable; conflicts stop installation. Invalid old'
+                  ' state requires first setup. Fingerprints must be enrolled again.')
         else:
             layout.check_stock_device(disk)
             region = disk.usable_end - disk.by_name(layout.USERDATA_NAME).start
@@ -570,7 +605,6 @@ def main(argv=None):
             plan = layout.plan_layout(disk, args.layout, android, root)
             print(plan.table(), flush=True)
             confirm_plan(planned, plan)
-            apply_layout(device_layout, disk, plan, saved, args.layout)
         flashes = []
         if args.layout == 'dual':
             flashes = stock_images_to_flash(device_layout, {
@@ -593,6 +627,14 @@ def main(argv=None):
                                                       flash_sha256=digest))
             if not args.no_backup:
                 (args.backup / 'SHA256SUMS').write_text(''.join(f'{h}  {n}\n' for n, h in backups.items()))
+        # All layout arithmetic, image selection, padding, backup and factory
+        # checks must complete before the first persistent write.
+        remote(shlex.join(['sh', '/usr/lib/liuqin/install-preflight.sh', boot_id,
+                           str((bundle / 'rootfs.tar.gz').stat().st_size)]), 180)
+        print('Complete write plan: ' + ', '.join(entry['partition'] for _, entry in flashes) +
+              '; Ubuntu root/home; boot slots ' + ','.join(boot_slots(args.layout)), flush=True)
+        if state == 'stock':
+            apply_layout(device_layout, disk, plan, saved, args.layout)
         base = f'http://{args.host_address}:{server.server_port}'
         install = install_root_command(boot_id, base, bundle, manifest, args, rom_images)
         print('Installing Ubuntu into ' + layout.ROOT_NAME + '.', flush=True)
@@ -602,8 +644,7 @@ def main(argv=None):
         remote("(sleep 2; /usr/sbin/liuqin-reboot bootloader) >/dev/null 2>&1 &")
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
-            devices = subprocess.check_output(['fastboot', 'devices'], text=True, timeout=10)
-            if any(line.split()[0] == args.serial for line in devices.splitlines() if line.split()):
+            if fastboot_answers(args.serial):
                 break
             time.sleep(2)
         else:
@@ -616,6 +657,28 @@ def main(argv=None):
             server.server_close()
         if scratch:
             scratch.cleanup()
+
+
+def developer_public_key(path=None):
+    """Select or create a host key; only the public half ever crosses USB."""
+    if path is None:
+        default = Path.home() / '.ssh/id_ed25519.pub'
+        path = default if default.is_file() else Path.home() / '.ssh/liuqin-devmode.pub'
+        if not path.exists():
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            private = path.with_suffix('')
+            if private.exists():
+                public = subprocess.check_output(['ssh-keygen', '-y', '-f', str(private)])
+                path.write_bytes(public)
+            else:
+                subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '',
+                                '-C', 'liuqin developer mode', '-f', str(private)], check=True)
+    data = Path(path).read_bytes()
+    if (len(data) > 16384 or len(data.splitlines()) != 1 or
+            not re.fullmatch(rb'(?:ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(?:256|384|521)) [A-Za-z0-9+/]+={0,3}(?: [^\r\n]*)?\n?', data)):
+        raise ValueError('expected one SSH public key')
+    subprocess.run(['ssh-keygen', '-l', '-f', str(path)], check=True, stdout=subprocess.DEVNULL)
+    return data.rstrip() + b'\n'
 
 
 def boot_slots(mode):
@@ -797,7 +860,7 @@ def restore_partition_table(remote, device_layout, directory, serial):
 
 
 def apply_layout(device_layout, before, plan, saved, mode):
-    """Wipe stale metadata, write the table once, verify it, restore on failure."""
+    """Wipe stale metadata, write the table once and verify; report manual recovery on failure."""
     userdata = before.by_name(layout.USERDATA_NAME)
     info = layout.parse_info(device_layout('info', layout.USERDATA_NAME))
     if info['first_sector'] != userdata.first_sector or info['name'] != layout.USERDATA_NAME:
@@ -806,12 +869,12 @@ def apply_layout(device_layout, before, plan, saved, mode):
     # stale file-based-encryption keys are gone.  Zeroing the head of userdata
     # also removes the LIUQIN_ROOT superblock of the old whole-disk root, so no
     # second filesystem can answer to that label afterwards.
+    disk_path = json.loads((saved / 'manifest.json').read_text())['disk']
+    arguments = layout.sgdisk_arguments(plan, disk_path, info)
     print('Wiping stale filesystem and encryption metadata...', flush=True)
     device_layout('wipe-head', layout.USERDATA_NAME, str(layout.WIPE_BYTES), timeout=300)
     if mode == 'dual':
         device_layout('wipe-head', layout.METADATA_NAME, str(layout.WIPE_BYTES), timeout=300)
-    disk_path = json.loads((saved / 'manifest.json').read_text())['disk']
-    arguments = layout.sgdisk_arguments(plan, disk_path, info)
     print('Writing the new partition table...', flush=True)
     try:
         if 'LAYOUT_APPLIED' not in device_layout('apply', ANCHOR, *arguments, timeout=300):
@@ -821,7 +884,7 @@ def apply_layout(device_layout, before, plan, saved, mode):
         if plan.entry(layout.USERDATA_NAME).action != 'delete':
             layout.verify_preserved(info, layout.parse_info(device_layout('info', layout.USERDATA_NAME)))
     except (RuntimeError, layout.LayoutError) as error:
-        print('Partition-table edit failed; restoring the saved table.', file=sys.stderr, flush=True)
+        print('Partition-table edit failed; device cleanup attempts to restore read-only flags. The saved table was NOT restored automatically.', file=sys.stderr, flush=True)
         raise RuntimeError(str(error) + ' —— 分区表写入失败，请用 --restore-partition-table '
                            + str(saved.parent) + ' 恢复出厂分区表后重试')
     print('New partition table verified.')

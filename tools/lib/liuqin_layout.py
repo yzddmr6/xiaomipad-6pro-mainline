@@ -48,12 +48,6 @@ HOME_LABEL = 'LIUQIN_HOME'
 METADATA_NAME = 'metadata'
 LINUX_TYPECODE = '8300'
 
-# Partition numbers for the two new entries.  The stock table holds 64 entries
-# and uses 35, so these are always free; addressing them by a fixed number
-# keeps the plan reproducible whether or not userdata is deleted.
-ROOT_NUMBER = 36
-HOME_NUMBER = 37
-
 MIN_ANDROID = 16 * GIB
 MIN_ROOT = 16 * GIB
 MIN_HOME = 8 * GIB
@@ -248,27 +242,45 @@ def parse_info(text):
             'name': one(r"^Partition name:\s*'(.*)'", 'the partition name')}
 
 
-def classify(disk):
-    """Return 'stock', 'split' or 'unknown' for the table we are about to edit.
+def valid_geometry(disk):
+    if (disk.sector_size not in (512, DEVICE_SECTOR_SIZE) or
+            not 0 < disk.first_usable <= disk.last_usable < disk.total_sectors or
+            not 0 < len(disk.partitions) <= disk.entry_count):
+        return False
+    numbers, names = set(), set()
+    end = disk.first_usable - 1
+    for part in disk.partitions:
+        if (part.number in numbers or part.name in names or not 1 <= part.number <= disk.entry_count
+                or not end < part.first_sector <= part.last_sector <= disk.last_usable):
+            return False
+        numbers.add(part.number); names.add(part.name); end = part.last_sector
+    return True
 
-    'unknown' is a refusal, not a mode: this installer only understands a table
-    it laid out itself and the untouched factory table.
+
+def classify(disk):
+    """Recognize preserved factory partitions plus a valid stock or split tail.
+
+    Names, ordering and nonoverlapping geometry identify the layout. Capacity
+    variants may use other partition numbers and different super/tail sizes.
     """
-    userdata = disk.by_name(USERDATA_NAME)
-    root = disk.by_name(ROOT_NAME)
-    home = disk.by_name(HOME_NAME)
-    last = disk.partitions[-1] if disk.partitions else None
-    if root is not None:
-        if last is not None and last.name in (ROOT_NAME, HOME_NAME):
-            return 'split'
+    if not valid_geometry(disk):
         return 'unknown'
-    if home is not None:
+    preserved = [row[3] for row in STOCK_TABLE if row[3] != USERDATA_NAME]
+    if [p.name for p in disk.partitions[:len(preserved)]] != preserved:
         return 'unknown'
-    if (userdata is not None and last is userdata
-            and len(disk.partitions) == STOCK_PARTITION_COUNT
-            and userdata.last_sector == disk.last_usable):
-        return 'stock'
-    return 'unknown'
+    tail = disk.partitions[len(preserved):]
+    if [p.name for p in tail] == [USERDATA_NAME]:
+        return 'stock' if tail[0].last_sector == disk.last_usable else 'unknown'
+    if [p.name for p in tail] not in ([ROOT_NAME, HOME_NAME], [USERDATA_NAME, ROOT_NAME, HOME_NAME]):
+        return 'unknown'
+    root, home = tail[-2:]
+    if (root.size < MIN_ROOT or home.size < MIN_HOME or
+            root.start % ALIGNMENT or home.start % ALIGNMENT or
+            root.end != home.start or home.last_sector != disk.last_usable):
+        return 'unknown'
+    if len(tail) == 3 and (tail[0].size < MIN_ANDROID or tail[0].end != root.start):
+        return 'unknown'
+    return 'split'
 
 
 def check_stock_device(disk):
@@ -288,6 +300,8 @@ def check_stock_device(disk):
     if userdata.last_sector != disk.last_usable:
         raise LayoutError('userdata does not run to the last usable sector'
                           ' —— 分区布局已被修改，拒绝继续')
+    if classify(disk) != 'stock':
+        raise LayoutError('factory partitions or geometry are not recognized')
     free = disk.entry_count - len(disk.partitions)
     if free < 2:
         raise LayoutError(f'the partition table has only {free} free entries; two are needed')
@@ -380,9 +394,13 @@ def plan_layout(disk, mode, android, root, keep_home=False):
         raise LayoutError(
             'the requested sizes leave less than ' + human(MIN_HOME) + ' for linux_home: '
             + _feasible(region, 'linux_root', MIN_ROOT, MIN_HOME + align_up(android)))
-    entries.append(Entry(ROOT_NUMBER, ROOT_NAME, cursor, root_end, 'create',
+    used = {part.number for part in disk.partitions}
+    free_numbers = [n for n in range(1, disk.entry_count + 1) if n not in used]
+    if len(free_numbers) < 2:
+        raise LayoutError('two unused GPT entries are required')
+    entries.append(Entry(free_numbers[0], ROOT_NAME, cursor, root_end, 'create',
                          f'create ext4 LABEL={ROOT_LABEL} (Ubuntu system)'))
-    entries.append(Entry(HOME_NUMBER, HOME_NAME, root_end, region_end, 'create',
+    entries.append(Entry(free_numbers[1], HOME_NAME, root_end, region_end, 'create',
                          f'create ext4 LABEL={HOME_LABEL} (mounted at /home)'))
     if entries[-1].size < MIN_HOME:
         raise LayoutError('linux_home would be ' + human(entries[-1].size) + ', below the '
@@ -432,6 +450,13 @@ def sgdisk_arguments(plan, device, userdata_info):
 
 def verify_applied(disk, plan):
     """Compare a freshly re-read table with the plan; raise on any difference."""
+    if not valid_geometry(disk) or (disk.sector_size, disk.total_sectors, disk.first_usable, disk.last_usable, disk.entry_count) != (plan.disk.sector_size, plan.disk.total_sectors, plan.disk.first_usable, plan.disk.last_usable, plan.disk.entry_count):
+        raise LayoutError('disk geometry changed across the edit')
+    changed = {item.name for item in plan.entries}
+    before = [(p.number, p.name, p.first_sector, p.last_sector) for p in plan.disk.partitions if p.name not in changed]
+    after = [(p.number, p.name, p.first_sector, p.last_sector) for p in disk.partitions if p.name not in changed]
+    if before != after:
+        raise LayoutError('a preserved partition changed across the edit')
     sector = disk.sector_size
     for item in plan.entries:
         found = disk.by_name(item.name)

@@ -2,19 +2,14 @@
 
 [中文](INSTALL-TESTING.md)
 
-Initial installation and first boot have been tested on a 256 GB unit. The
-128 GB and 512 GB variants are admitted by the rules in the
-[installation guide](FLASHING.en.md) but have not been tested on real hardware.
-This remains an experimental device port. Keep the tablet attended and prepare a recovery plan.
+This remains an experimental device port. Initial installation, first boot and the reinstall that
+keeps `/home` have been validated on a 256 GB unit. The 128 GB and 512 GB variants are admitted by the
+rules in the [installation guide](FLASHING.en.md) but have not been tested on real hardware. Keep the
+tablet attended and prepare a recovery plan.
 
-An earlier revision of the dual-boot layout has been installed on a 256 GB
-unit: the partition table was split, Ubuntu was installed into `linux_root`
-with `/home` on `linux_home`, and Ubuntu booted from slot B. The current
-revision boots both systems from slot A and switches between them by
-exchanging the boot image in `boot_a` (see
-[Switching Between the Systems](#switching-between-the-systems)). v0.6.0 passed a complete `--layout dual --keep-home --no-backup` installation, initial setup and user acceptance on the same 256 GB unit. Both boot partitions matched the expected image and the existing `/home` was retained. Earlier tests covered Android's first boot after firmware repair and the KernelSU return script under a debug Android boot; automatic KernelSU activation under an ordinary Android boot and the WebUI button remain unverified. The Linux-only layout uses the same
-layout engine but has not been installed on hardware. Treat both as attended
-experiments.
+The dual-boot layout boots both systems from slot A and switches between them by exchanging the boot
+image in `boot_a` (see [Switching Between the Systems](#switching-between-the-systems)). The Linux-only
+layout uses the same layout engine but has not been installed on hardware.
 
 ## Installation Layouts
 
@@ -207,6 +202,39 @@ the host's USB address when automatic route selection is unsuitable. If the
 installer cannot establish its control channel it stops; do not blindly retry
 after a partial installation. Preserve the error output and backup first.
 
+## Upgrading an installed system
+
+The project kernel and device components are updated together with the installation bundle. To
+upgrade a tablet that runs an earlier release, reinstall it from the new bundle and keep `/home`:
+put the tablet into Fastboot (power it off, then hold the power and volume-down keys) and run, in the
+bundle directory:
+
+```sh
+python3 install.py --bundle . --serial DEVICE_SERIAL \
+  --backup /path/to/new-private-backup --erase-userdata --layout dual \
+  --rom-dir /path/to/extracted-stock-rom --android-boot /path/to/boot-ksu.img \
+  --keep-home
+```
+
+For the Linux-only layout, use `--layout linux-only` and drop `--rom-dir` and `--android-boot`.
+In the dual layout, leaving out `--android-boot` stores the ROM's own `boot.img`; if Android used a
+KernelSU image before, pass the same image again (`tools/patch-android-boot-ksu.py` regenerates it
+from the stock `boot.img`).
+
+The reinstall rebuilds only the Ubuntu system partition `linux_root`:
+
+- Kept: `/home`, ordinary user accounts with their system group memberships, account profiles and
+  pictures, NetworkManager connections, Bluetooth pairings, the time zone and the device name. The
+  tablet returns to the existing login screen, with the existing passwords.
+- Not kept: fingerprint templates (enrol again in Settings → Users), and packages installed or system
+  configuration changed on the system partition.
+- Android's `userdata` and `metadata` are not touched.
+
+If the new system already has an account or group with the same name, UID or GID, the installer
+stops before formatting and never overwrites a system account. If the old system partition cannot be
+read or its account files are malformed, the installer says so, and the reinstalled system starts
+with the first-time setup.
+
 ## Reinstalling and Changing the Split
 
 On a tablet that already carries this split layout, the installer refuses to
@@ -340,13 +368,11 @@ store until `liuqin-switch to-ubuntu` rewrites the partition.
 An interruption during a write that the switcher cannot catch, such as a power
 loss, has the same outcome and the same repair.
 
-**Validation status.** The switcher's decision and verification logic is
-covered by host-side tests that run it against ordinary files. Neither
-direction of the switch, the read-only mount on Android, nor the cold boot of
-either system from slot A after a switch has been performed on the tablet.
-Ubuntu has booted from slot B on the earlier revision; booting it from slot A,
-where the bootloader pairs it with slot A's stock `dtbo_a` and `vbmeta_a`, has
-not been tested.
+**Validation status.** The switcher's decision and verification logic is covered by host-side
+tests that run it against ordinary files. On the tablet, Android's first boot after the stock firmware
+repair and a round trip between the systems with the KernelSU module script under a debug Android boot
+have been validated; automatic module activation under an ordinary Android boot and the KernelSU
+Manager WebUI button have not been validated separately.
 
 **Upgrading an earlier dual installation.** Installations made by the earlier
 revision boot Ubuntu from slot B and have no switch store. Reinstall the system
@@ -384,23 +410,30 @@ slot B, and the update destroys the fallback copy of the Ubuntu boot image.
 Ubuntu boot chain and returns the tablet to Android only. The same applies to
 `flash_all_lock.sh` and `flash_all_except_storage.sh`.
 
-## Desktop Diagnostics
+## Developer Mode
 
-For an attended installation test, add `--enable-rescue` to the installation
-command to make the rescue shell available from the first boot. This is an
-explicit opt-in to unauthenticated root access, not the default installation.
+Developer mode provides root SSH login over the USB cable. It accepts keys only and is off by default.
+For an attended installation, add `--enable-rescue` to the installation command: the installer
+provisions the host's SSH public key (`~/.ssh/id_ed25519.pub` by default, or the key given with
+`--ssh-public-key`), so the login works from the first boot. A reinstall that keeps `/home` keeps
+developer mode enabled, with the existing keys, when the previous system had it enabled.
 
-On the tablet, enable the rescue shell with:
+It can also be switched on the tablet:
 
 ```sh
-sudo liuqin-rescue on
+sudo liuqin-devmode on
+sudo liuqin-devmode off
 ```
 
-Check it with `liuqin-rescue status`. This grants unauthenticated root access
-at `192.168.7.2:2323` and remains enabled across boots. Use only a trusted
-connection; do not expose or forward this port to other networks. After
-diagnostics, run `sudo liuqin-rescue off` on the tablet to disable it and
-close existing rescue connections. Release images leave it disabled by default.
+Check it with `liuqin-devmode status`; the keys are in `/etc/liuqin/devmode/authorized_keys` on the
+tablet. While enabled, the tablet uses `192.168.66.2` on the USB network and the host receives
+`192.168.66.10` by DHCP. Connect from the project directory on the host:
+
+```sh
+python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
+```
+
+Use it only over a trusted, direct USB connection, and run `sudo liuqin-devmode off` after diagnostics.
 
 ## Known Issues
 
@@ -432,6 +465,6 @@ installation does not establish that Android recovery has been validated.
 
 On an existing supported split layout, `--no-backup` can replace `--backup PATH` in a `--keep-home` reinstall command. It explicitly skips boot, persist and GPT backups; it cannot be used for initial partitioning or restoring a partition table. Backups remain the default.
 
-`--keep-home` retains only the separate `/home` filesystem. The Ubuntu system partition is recreated, removing its accounts and fingerprint templates/credentials; create the account and enroll the finger again after installation.
+`--keep-home` retains the separate `/home` filesystem. Before recreating the system partition, it reads the old root read-only and preserves ordinary accounts (UID/GID 1000–59999), supplementary system-group membership, AccountsService profiles/icons, NetworkManager connections, Bluetooth pairing, the time zone and the host name. A valid migration returns to the existing login screen. Name or UID/GID conflicts in the new root stop installation before formatting; system accounts are never overwritten. A missing, unreadable or malformed old root produces an explicit fallback message and requires first setup again. Fingerprint templates and credentials are not migrated; enroll fingerprints again after installation.
 
 The complete bundle also includes `liuqin_boot_ubuntu-v0.3.zip`, `dualboot-tools.zip` and the public fingerprint build input. Normal fingerprint use needs no separate application. Extract `dualboot-tools.zip` to use the documented pinned KernelSU download and Android boot patching commands.

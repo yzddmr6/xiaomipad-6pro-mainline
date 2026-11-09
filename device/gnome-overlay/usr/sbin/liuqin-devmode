@@ -1,0 +1,93 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Turn the liuqin developer mode (SSH login over the USB cable) on or off and
+# report its state.  The switch is the enablement state of
+# liuqin-devmode.service: `on` is `systemctl enable --now`, `off` is
+# `systemctl disable --now`.  `check` is the unit's start check: OpenSSH
+# server present, host keys created, developer-mode sshd configuration valid.
+set -eu
+unit=liuqin-devmode.service
+sshd=/usr/sbin/sshd
+config=/usr/lib/liuqin/devmode/sshd_config
+
+usage() {
+	echo 'usage: liuqin-devmode on|off|status|check' >&2
+	exit 2
+}
+
+need_sshd() {
+	if [ ! -x "$sshd" ]; then
+		echo "liuqin-devmode: OpenSSH server is not installed ($sshd is missing); install the openssh-server package, then run: liuqin-devmode on" >&2
+		exit 1
+	fi
+}
+
+# The system OpenSSH listens on every address; then the developer-mode
+# socket, which listens only on the USB address, cannot bind port 22.
+system_ssh_active() {
+	systemctl -q is-active ssh.socket || systemctl -q is-active ssh.service
+}
+
+status() {
+	# shellcheck source=/dev/null # generated from initramfs/network.json
+	. /etc/liuqin-network
+	echo "developer mode: $(systemctl is-enabled "$unit" 2>/dev/null || true), $(systemctl is-active "$unit" 2>/dev/null || true)"
+	if [ -x "$sshd" ]; then
+		echo "OpenSSH server: $sshd"
+	else
+		echo 'OpenSSH server: not installed (openssh-server)'
+	fi
+	gadget=/sys/kernel/config/usb_gadget/liuqin-devmode
+	if [ -e "$gadget/UDC" ] && [ -n "$(cat "$gadget/UDC")" ]; then
+		echo "USB gadget: bound to $(cat "$gadget/UDC")"
+	else
+		echo 'USB gadget: not bound'
+	fi
+	ifname=
+	for n in /sys/class/net/*; do
+		if [ "$(cat "$n/address" 2>/dev/null)" = "$LIUQIN_DEVICE_MAC" ]; then
+			ifname=${n##*/}
+		fi
+	done
+	if [ -n "$ifname" ]; then
+		echo "USB network: $ifname $(ip -4 -brief address show dev "$ifname" | sed 's/^[^ ]* *//')"
+	else
+		echo "USB network: no interface with $LIUQIN_DEVICE_MAC"
+	fi
+	echo "SSH socket: $(systemctl is-active liuqin-devmode-ssh.socket 2>/dev/null || true) ($LIUQIN_DEVICE_IP port 22)"
+	echo "host: ssh <user>@$LIUQIN_DEVICE_IP (the host side gets $LIUQIN_HOST_IP by DHCP)"
+	if system_ssh_active; then
+		echo 'warning: ssh.socket or ssh.service is active and listens on every address, so the USB-only socket cannot bind; to keep SSH on the USB link only: systemctl disable --now ssh.socket ssh.service'
+	fi
+}
+
+[ "$#" -eq 1 ] || usage
+case "$1" in
+on)
+	"$0" check
+	systemctl enable --now "$unit"
+	status
+	;;
+off)
+	systemctl disable --now "$unit"
+	;;
+status)
+	status
+	;;
+check)
+	need_sshd
+	[ -s /etc/liuqin/devmode/authorized_keys ] || {
+		echo 'liuqin-devmode: install a host public key in /etc/liuqin/devmode/authorized_keys first' >&2
+		exit 1
+	}
+	ssh-keygen -l -f /etc/liuqin/devmode/authorized_keys >/dev/null
+	ssh-keygen -A
+	if ! "$sshd" -t -f "$config"; then
+		echo "liuqin-devmode: $sshd rejects $config or the host keys" >&2
+		exit 1
+	fi
+	;;
+*)
+	usage
+	;;
+esac

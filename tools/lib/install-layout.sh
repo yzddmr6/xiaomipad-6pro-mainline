@@ -35,9 +35,21 @@ mkdir -p "$WORK" || die 'cannot create the scratch directory'
 
 # Decoded copies are never inputs, so they can go at any exit; the staged
 # base64 halves are inputs the host wrote, and only restore-gpt removes them.
-cleanup() { rm -f "$WORK"/liuqin-gpt-read.bin "$WORK"/liuqin-gpt-head.bin \
-	"$WORK"/liuqin-gpt-tail.bin 2>/dev/null || :; }
-trap cleanup EXIT HUP INT TERM
+opened_disk=
+cleanup() {
+	status=$?
+	trap - EXIT HUP INT TERM
+	if [ -n "$opened_disk" ]; then
+		if ! seal "$opened_disk"; then
+			echo 'liuqin-layout: ERROR: could not restore all read-only flags' >&2
+			status=1
+		fi
+	fi
+	rm -f "$WORK"/liuqin-gpt-read.bin "$WORK"/liuqin-gpt-head.bin "$WORK"/liuqin-gpt-tail.bin
+	exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' HUP INT TERM
 
 # Resolve a partition by PARTNAME.  /dev/disk/by-partlabel is built once at
 # boot from a fixed name list, so it cannot describe a table this script is
@@ -105,13 +117,17 @@ assert_idle() {
 # every partition read-only again, including partitions the kernel has just
 # re-created from the new table.
 seal() {
+	seal_failed=0
 	for info in /sys/class/block/"${1##*/}"*/dev; do
 		[ -f "$info" ] || continue
 		node=${info%/dev}
-		"$BB" blockdev --setro "/dev/${node##*/}" || die 'cannot restore the read-only flag'
+		"$BB" blockdev --setro "/dev/${node##*/}" || seal_failed=1
 	done
-	"$BB" blockdev --setro "$1" || die 'cannot restore the read-only flag'
-	return 0
+	"$BB" blockdev --setro "$1" || seal_failed=1
+	[ "$seal_failed" = 0 ] || {
+		printf '%s\n' 'liuqin-layout: cannot restore the read-only flag' >&2
+		return 1
+	}
 }
 
 # sha256 of a byte range of a block device, as whole 4096-byte blocks.
@@ -126,6 +142,10 @@ block_digest() {
 }
 
 case $verb in
+find)
+	[ "$#" = 1 ] || die "usage: find PARTNAME"
+	find_part "$1"; printf "\n"
+	;;
 disk)
 	[ "$#" = 1 ] || die 'usage: disk PARTNAME'
 	part=$(find_part "$1")
@@ -196,6 +216,7 @@ restore-gpt)
 		[ "$(stat -c %s "$WORK/liuqin-gpt-$half.bin")" = "$(( sector * 6 ))" ] ||
 			die "staged GPT copy has the wrong size: $half"
 	done
+	opened_disk=$disk
 	"$BB" blockdev --setrw "$disk" || die 'cannot open the disk for writing'
 	"$BB" dd if="$WORK/liuqin-gpt-head.bin" of="$disk" bs="$sector" count=6 conv=notrunc 2>/dev/null ||
 		die 'writing the primary GPT failed'
@@ -204,7 +225,8 @@ restore-gpt)
 		die 'writing the backup GPT failed'
 	sync
 	"$BB" blockdev --rereadpt "$disk" || true
-	seal "$disk"
+	seal "$disk" || die "could not restore read-only flags"
+	opened_disk=
 	"$SGDISK" -v "$disk" || die 'the restored partition table does not verify'
 	# The staged halves have served their purpose; leaving them behind would
 	# let a later restore-gpt write a table nobody staged for it.
@@ -227,12 +249,14 @@ wipe-head)
 	assert_idle "$disk"
 	size=$(byte_size "$part")
 	[ "$size" -gt "$2" ] || die 'partition is smaller than the requested wipe'
+	opened_disk=$disk
 	"$BB" blockdev --setrw "$disk" || die 'cannot open the disk for writing'
 	"$BB" blockdev --setrw "$part" || die 'cannot open the partition for writing'
 	"$BB" dd if=/dev/zero of="$part" bs=1048576 count="$(( $2 / 1048576 ))" conv=notrunc 2>/dev/null ||
 		die "wiping $1 failed"
 	sync
-	seal "$disk"
+	seal "$disk" || die "could not restore read-only flags"
+	opened_disk=
 	printf 'liuqin-layout: WIPED %s\n' "$1"
 	;;
 apply)
@@ -247,6 +271,7 @@ apply)
 	eval "target=\${$#}"
 	[ "$target" = "$disk" ] ||
 		die 'the sgdisk arguments do not end with the resolved disk'
+	opened_disk=$disk
 	"$BB" blockdev --setrw "$disk" || die 'cannot open the disk for writing'
 	if "$SGDISK" "$@"; then
 		status=0
@@ -255,7 +280,8 @@ apply)
 	fi
 	sync
 	"$BB" blockdev --rereadpt "$disk" || true
-	seal "$disk"
+	seal "$disk" || die "could not restore read-only flags"
+	opened_disk=
 	[ "$status" = 0 ] || die 'sgdisk refused the requested layout'
 	"$SGDISK" -v "$disk" || die 'the new partition table does not verify'
 	printf 'liuqin-layout: LAYOUT_APPLIED\n'

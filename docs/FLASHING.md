@@ -53,7 +53,7 @@ Bootloader 解锁。
 `boot_b` 保存 Ubuntu boot 镜像的一份副本，`boot_a` 无法加载时由 Bootloader 自动使用。
 Ubuntu 提供"重启到 Android"入口，Android 通过 KernelSU 模块提供"Reboot to Ubuntu"按钮。
 
-两个方向的切换均尚未经真机验证。命令、安全规则与修复方法见
+命令、安全规则、修复方法与真机验证范围见
 [双系统切换](INSTALL-TESTING.md#双系统切换)。
 
 ## 发布内容

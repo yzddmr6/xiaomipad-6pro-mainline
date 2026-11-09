@@ -1,0 +1,371 @@
+From: yzddmr6 <46088090+yzddmr6@users.noreply.github.com>
+Subject: [PATCH] hexagonrpcd: validate listener continuations and test large inputs
+
+The preceding patch imports upstream f0dfd509. Add its missing
+required-length check, following Qualcomm fastrpc v1.0.7 listener_android.c;
+clean up partial decodes and listener-owned buffers on transport failure.
+Match empty error-reply sizing to the existing encoder (also corrected in
+upstream PR #27 commit 40e50412812adce9dddc2be9a4510ebce05eef89).
+
+The original Piano tests drive production apps_std/HexagonFS write handlers.
+The Liuqin adaptation below retains the production marshaller/listener and
+checks the same continuation context, offset, lengths and fd=-1 ABI using an
+explicit protocol receiver. It verifies binary input and scratch-file bytes
+at 4 KiB and 64 KiB, 256/257-byte encoded boundaries, transport/length/cap/
+truncation errors, and an AEE_EUNSUPPORTED reply.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Liuqin adaptation: retain the existing registry tests/exported dispatcher.
+The pinned liuqin apps_std is read-only, so the large-input test substitutes
+an explicit byte-checking protocol receiver, not Piano's writable registry.
+Marshaller, listener, continuation ABI and all nine scenarios remain real.
+Only the receiver is a fixture; no product filesystem-write claim is made.
+---
+diff --git a/hexagonrpcd/iobuffer.c b/hexagonrpcd/iobuffer.c
+index 7bc770a..04c9336 100644
+--- a/hexagonrpcd/iobuffer.c
++++ b/hexagonrpcd/iobuffer.c
+@@ -143,7 +143,7 @@ struct fastrpc_decoder_context *inbuf_decode_start(uint32_t sc)
+ 	ctx->buf_off = 0;
+ 	ctx->align = 0;
+ 
+-	ctx->inbufs = malloc(sizeof(*ctx->inbufs) * ctx->n_inbufs);
++	ctx->inbufs = calloc(ctx->n_inbufs, sizeof(*ctx->inbufs));
+ 	if (ctx->inbufs == NULL && ctx->n_inbufs != 0)
+ 		goto err;
+ 
+@@ -168,6 +168,12 @@ int inbuf_decode_is_complete(struct fastrpc_decoder_context *ctx)
+ 	return ctx->idx >= ctx->n_inbufs;
+ }
+ 
++void inbuf_decode_abort(struct fastrpc_decoder_context *ctx)
++{
++	iobuf_free(ctx->n_inbufs, ctx->inbufs);
++	free(ctx);
++}
++
+ int inbuf_decode(struct fastrpc_decoder_context *ctx, size_t len, const void *src)
+ {
+ 	const char *buf = src;
+@@ -199,9 +205,12 @@ size_t outbufs_calculate_size(size_t n_outbufs, const struct fastrpc_io_buffer *
+ 	for (i = 0; i < n_outbufs; i++) {
+ 		size += 4;
+ 
+-		if (size & 0x7)
+-			size += 8 - (size & 0x7);
+-		size += outbufs[i].s;
++		/* Match outbufs_encode: empty error replies have only a size word. */
++		if (outbufs[i].s) {
++			if (size & 0x7)
++				size += 8 - (size & 0x7);
++			size += outbufs[i].s;
++		}
+ 	}
+ 
+ 	return size;
+diff --git a/hexagonrpcd/iobuffer.h b/hexagonrpcd/iobuffer.h
+index de4218d..9f9baf9 100644
+--- a/hexagonrpcd/iobuffer.h
++++ b/hexagonrpcd/iobuffer.h
+@@ -47,6 +47,7 @@ void iobuf_free(size_t n_iobufs, struct fastrpc_io_buffer *iobufs);
+ 
+ struct fastrpc_decoder_context *inbuf_decode_start(uint32_t sc);
+ struct fastrpc_io_buffer *inbuf_decode_finish(struct fastrpc_decoder_context *ctx);
++void inbuf_decode_abort(struct fastrpc_decoder_context *ctx);
+ int inbuf_decode_is_complete(struct fastrpc_decoder_context *ctx);
+ int inbuf_decode(struct fastrpc_decoder_context *ctx, size_t len, const void *src);
+ 
+diff --git a/hexagonrpcd/listener.c b/hexagonrpcd/listener.c
+index 8912849..94bcf34 100644
+--- a/hexagonrpcd/listener.c
++++ b/hexagonrpcd/listener.c
+@@ -462,6 +462,12 @@ static int fetch_large_inbufs(int fd, uint32_t rctx, uint32_t inbufs_len,
+ 		return -1;
+ 	}
+ 
++	/* Qualcomm's listener checks the required length against total capacity. */
++	if (got > inbufs_len) {
++		fprintf(stderr, "Large input requirement changed: %u > %u\n", got, inbufs_len);
++		free(buf);
++		return -1;
++	}
+ 	*out = buf;
+ 
+ 	return 0;
+@@ -529,17 +535,20 @@ static int return_for_next_invoke(int fd,
+ 	ret = inbuf_decode(ctx, inbufs_len, src);
+ 	if (ret) {
+ 		perror("Could not decode");
+-		goto err_free_large;
++		goto err_abort_decode;
+ 	}
+ 
+ 	if (!inbuf_decode_is_complete(ctx)) {
+ 		fprintf(stderr, "Expected more input buffers\n");
+ 		ret = -1;
+-		goto err_free_large;
++		goto err_abort_decode;
+ 	}
+ 
+ 	*decoded = inbuf_decode_finish(ctx);
++	goto err_free_large;
+ 
++err_abort_decode:
++	inbuf_decode_abort(ctx);
+ err_free_large:
+ 	free(large);
+ err_free_outbufs:
+@@ -664,8 +673,11 @@ int run_fastrpc_listener(int fd,
+ 		if (ret)
+ 			break;
+ 
+-		if (returned != NULL)
++		if (returned != NULL) {
+ 			iobuf_free(n_outbufs, returned);
++			returned = NULL;
++		}
++		n_outbufs = REMOTE_SCALARS_OUTBUFS(sc);
+ 
+ 		ret = fastrpc_invoke_requested_procedure(n_ifaces, ifaces,
+ 							 handle, sc, &result,
+@@ -673,11 +685,15 @@ int run_fastrpc_listener(int fd,
+ 		if (ret)
+ 			break;
+ 
+-		if (decoded != NULL)
++		if (decoded != NULL) {
+ 			iobuf_free(REMOTE_SCALARS_INBUFS(sc), decoded);
+-
+-		n_outbufs = REMOTE_SCALARS_OUTBUFS(sc);
++			decoded = NULL;
++		}
+ 	}
+ 
++	if (decoded != NULL)
++		iobuf_free(REMOTE_SCALARS_INBUFS(sc), decoded);
++	if (returned != NULL)
++		iobuf_free(n_outbufs, returned);
+ 	return ret;
+ }
+diff --git a/tests/meson.build b/tests/meson.build
+index 8a6fcb6..181c507 100644
+--- a/tests/meson.build
++++ b/tests/meson.build
+@@ -62,6 +62,22 @@
+   args : [meson.current_build_dir()])
+ test('sns-registry', test_sns_registry)
+ 
++test_listener_large = executable('test_listener_large',
++  'test_listener_large.c',
++  '../hexagonrpcd/interface/adsp_listener.c',
++  '../hexagonrpcd/listener.c',
++  '../hexagonrpcd/iobuffer.c',
++  '../libhexagonrpc/hexagonrpc.c',
++  c_args : cflags,
++  include_directories : include,
++)
++foreach size : ['232', '233', '4096', '65536']
++  test('listener-input-' + size, test_listener_large, args : [size, 'success'])
++endforeach
++foreach scenario : ['fetch-error', 'changed-length', 'oversize', 'truncated', 'unsupported']
++  test('listener-' + scenario, test_listener_large, args : ['4096', scenario])
++endforeach
++
+ # Substitute allocation and ioctl calls to exercise errors without a device.
+ test_type_sequence = executable('test_type_sequence',
+   'test_type_sequence.c',
+diff --git a/tests/test_listener_large.c b/tests/test_listener_large.c
+new file mode 100644
+--- /dev/null
++++ b/tests/test_listener_large.c
+@@ -0,0 +1,190 @@
++/* SPDX-License-Identifier: GPL-3.0-or-later */
++/* Liuqin adaptation: the pinned apps_std has no write handler. Keep the
++ * real marshaller and listener; substitute an explicit protocol receiver at
++ * the dispatch boundary. It validates every byte and writes to a real scratch
++ * fd, without claiming that the product's read-only HexagonFS supports writes.
++ * Original ioctl/continuation/error scenarios: piano patch 0006, yzddmr6. */
++#include <errno.h>
++#include <fcntl.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <inttypes.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include <unistd.h>
++#include <libhexagonrpc/error.h>
++#include "../hexagonrpcd/listener.h"
++#define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); exit(1); } } while (0)
++
++#include <endian.h>
++#include <misc/fastrpc.h>
++#include <stdarg.h>
++#include <sys/ioctl.h>
++#include "../hexagonrpcd/interface/adsp_listener.h"
++
++#ifdef __GLIBC__
++typedef unsigned long ioctl_operation;
++#else
++typedef int ioctl_operation;
++#endif
++
++static unsigned char *packet, *payload;
++static size_t packet_len, payload_len;
++static const char *scenario;
++static unsigned int next_calls, fetch_calls;
++static bool reply_seen;
++static const uint32_t request_context = 0x12345678;
++
++static void word(void *where, uint32_t value)
++{
++	value = htole32(value);
++	memcpy(where, &value, sizeof(value));
++}
++
++static uint32_t get_word(const void *where)
++{
++	uint32_t value;
++	memcpy(&value, where, sizeof(value));
++	return le32toh(value);
++}
++
++/* Substitute the DSP/kernel boundary. Production hexagonrpc builds invoke
++ * scalars/args; the real listener decodes into the explicit fixture below. */
++int ioctl(int fd, ioctl_operation op, ...)
++{
++	struct fastrpc_invoke *invoke;
++	struct fastrpc_invoke_args *args;
++	uint32_t *in;
++	va_list ap;
++	CHECK(fd == 123 && op == FASTRPC_IOCTL_INVOKE);
++	va_start(ap, op);
++	invoke = (void *)(uintptr_t)va_arg(ap, __u64);
++	va_end(ap);
++	CHECK(invoke->handle == ADSP_LISTENER);
++	args = (void *)(uintptr_t)invoke->args;
++	unsigned int count = REMOTE_SCALARS_INBUFS(invoke->sc) + REMOTE_SCALARS_OUTBUFS(invoke->sc);
++	for (unsigned int i = 0; i < count; i++) {
++		/* Kernel fastrpc_get_args handles these as copied DMA-backed args. */
++		CHECK(args[i].fd == -1 && args[i].attr == 0);
++	}
++	if (invoke->sc == REMOTE_SCALARS_MAKE(3, 0, 0))
++		return 0;
++	in = (void *)(uintptr_t)args[0].ptr;
++	if (invoke->sc == REMOTE_SCALARS_MAKE(4, 2, 2)) {
++		CHECK(args[0].length == 16 && args[2].length == 16 && args[3].length == 256);
++		CHECK(in[3] == 256 && in[2] == args[1].length);
++		if (next_calls++) {
++			const unsigned char *encoded = (void *)(uintptr_t)args[1].ptr;
++			CHECK(in[0] == request_context);
++			if (!strcmp(scenario, "unsupported")) {
++				CHECK(in[1] == AEE_EUNSUPPORTED);
++				CHECK(args[1].length == 4 && get_word(encoded) == 0);
++			} else {
++				CHECK(in[1] == AEE_SUCCESS);
++				CHECK(args[1].length == 16 && get_word(encoded) == 8);
++				CHECK(get_word(encoded + 8) == payload_len && get_word(encoded + 12) == 0);
++			}
++			reply_seen = true;
++			errno = ECANCELED; /* End this one-request simulated session. */
++			return -1;
++		}
++		CHECK(in[0] == 0 && in[1] == UINT32_MAX && args[1].length == 0);
++		uint32_t *out = (void *)(uintptr_t)args[2].ptr;
++		out[0] = request_context;
++		out[1] = 0; /* The explicit blob receiver in our one-entry array. */
++		out[2] = REMOTE_SCALARS_MAKE(!strcmp(scenario, "unsupported") ? 18 : 5, 2, 1);
++		out[3] = !strcmp(scenario, "oversize") ? (16 * 1024 * 1024 + 1) : packet_len;
++		memcpy((void *)(uintptr_t)args[3].ptr, packet, packet_len < 256 ? packet_len : 256);
++		return 0;
++	}
++	CHECK(invoke->sc == REMOTE_SCALARS_MAKE(5, 1, 2));
++	fetch_calls++;
++	CHECK(args[0].length == 12 && args[1].length == 4);
++	CHECK(in[0] == request_context && in[1] == 256);
++	CHECK(in[2] == packet_len - 256 && args[2].length == packet_len - 256);
++	if (!strcmp(scenario, "fetch-error")) {
++		errno = EIO;
++		return -1;
++	}
++	*(uint32_t *)(uintptr_t)args[1].ptr = packet_len + (!strcmp(scenario, "changed-length") ? 1 : 0);
++	memcpy((void *)(uintptr_t)args[2].ptr, packet + 256, packet_len - 256);
++	return 0;
++}
++
++/* Same two-input/one-output blob ABI as the imported test, but a clearly
++ * identified fixture endpoint instead of Piano's out-of-scope write handler. */
++static uint32_t receive_blob(void *data, const struct fastrpc_io_buffer *in,
++                             struct fastrpc_io_buffer *out)
++{
++    int fd = *(int *)data;
++    CHECK(in[0].s == 8 && get_word(in[0].p) == (uint32_t)fd);
++    CHECK(get_word((char *)in[0].p + 4) == payload_len);
++    CHECK(in[1].s == payload_len && !memcmp(in[1].p, payload, payload_len));
++    CHECK(write(fd, in[1].p, in[1].s) == (ssize_t)payload_len);
++    CHECK(out[0].s == 8);
++    word(out[0].p, payload_len); word((char *)out[0].p + 4, 0);
++    return AEE_SUCCESS;
++}
++static const struct hrpc_arg_def_interp4 blob_args[] = {
++    {HRPC_ARG_WORD, sizeof(uint32_t)},
++    {HRPC_ARG_BLOB_SEQ, sizeof(char)},
++    {HRPC_ARG_OUT_BLOB, sizeof(uint32_t)},
++    {HRPC_ARG_OUT_BLOB, sizeof(uint32_t)},
++};
++static const struct hrpc_method_def_interp4 blob_def = {
++    .msg_id = 5, .n_args = HRPC_ARRAY_SIZE(blob_args), .args = blob_args,
++};
++static const struct fastrpc_function_impl fixture_procs[19] = {
++    [5] = {.def = &blob_def, .impl = receive_blob},
++};
++
++int main(int argc, char **argv)
++{
++	char template[] = "/tmp/hexagonrpc-large-XXXXXX";
++	int fd;
++	struct fastrpc_interface *iface;
++	uint32_t file;
++	CHECK(argc == 3);
++	payload_len = strtoul(argv[1], NULL, 10);
++	CHECK(payload_len > 0 && payload_len <= 65536);
++	scenario = argv[2];
++	fd = mkstemp(template); CHECK(fd >= 0);
++    struct fastrpc_interface fixture = {
++        .name = "test-blob-receiver", .n_procs = HRPC_ARRAY_SIZE(fixture_procs),
++        .procs = fixture_procs, .data = &fd,
++    };
++    iface = &fixture;
++    file = fd;
++	payload = malloc(payload_len); CHECK(payload);
++	for (size_t i = 0; i < payload_len; i++)
++		payload[i] = (unsigned char)(i * 37 + i / 256);
++	/* Two encoded input buffers: 8-byte primitive (fd,length) and the data.
++	 * Each length is LE32; nonempty data starts at the next 8-byte boundary. */
++	packet_len = 24 + payload_len;
++	packet = calloc(1, packet_len); CHECK(packet);
++	word(packet, 8); word(packet + 8, file);
++	word(packet + 12, payload_len);
++	word(packet + 16, payload_len + (!strcmp(scenario, "truncated") ? 1 : 0));
++	memcpy(packet + 24, payload, payload_len);
++	CHECK(run_fastrpc_listener(123, 1, &iface) != 0);
++	bool success = !strcmp(scenario, "success");
++	CHECK(reply_seen == (success || !strcmp(scenario, "unsupported")));
++	CHECK(fetch_calls == (packet_len > 256 && strcmp(scenario, "oversize") ? 1 : 0));
++	CHECK(lseek(fd, 0, SEEK_SET) == 0);
++	struct stat st; CHECK(!fstat(fd, &st));
++	CHECK(st.st_size == (success ? (off_t)payload_len : 0));
++	if (success) {
++		unsigned char *readback = malloc(payload_len); CHECK(readback);
++		CHECK(read(fd, readback, payload_len) == (ssize_t)payload_len);
++		CHECK(!memcmp(payload, readback, payload_len));
++		free(readback);
++	}
++	close(fd);
++	CHECK(unlink(template) == 0);
++	printf("LISTENER_INPUT_PASS bytes=%zu case=%s fetch_calls=%u fixture_file_bytes=%jd\n",
++	       payload_len, scenario, fetch_calls, (intmax_t)st.st_size);
++	free(packet); free(payload);
++	return 0;
++}

@@ -1,8 +1,3 @@
 [org/gnome/settings-daemon/plugins/power]
-# Same delegation as local.d/00-liuqin, duplicated for the greeter: the
-# gdm dconf profile reads system-db:gdm, not system-db:local, so the user
-# override never reached the login screen.  It matters there: GSD detects
-# this device as a VM (ABL's DTBO injects a Gunyah /hypervisor node into
-# the live device tree) and turns any greeter power-button action other
-# than 'nothing' into an immediate shutdown, bypassing liuqin-power-keyd.
+# liuqin-power-keyd owns duration-based power-key handling in the greeter too.
 power-button-action='nothing'

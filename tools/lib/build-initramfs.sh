@@ -432,6 +432,7 @@ mkdir -p "$staging/bin" "$staging/sbin" "$staging/etc" "$staging/proc" \
 	"$staging/usr/sbin"
 cp "$busybox" "$staging/bin/busybox"
 cp "$source_dir/init" "$staging/init"
+install -m 0755 "$project_root/device/platform/liuqin-physical-platform" "$staging/bin/liuqin-physical-platform"
 cp "$source_dir/etc/issue" "$staging/etc/issue"
 cp "$source_dir/etc/mdev.conf" "$staging/etc/mdev.conf"
 chmod 0644 "$staging/etc/mdev.conf"
@@ -487,6 +488,14 @@ if [ "$charger_mode" = 1 ]; then
 			exit 1
 		fi
 	done
+fi
+
+# Use the installer's existing RESTART2 helper for product recovery too.
+if [ -x "$staging/bin/liuqin-charger-mode-exit" ]; then
+	ln -s liuqin-charger-mode-exit "$staging/bin/liuqin-reboot"
+else
+	"$slot_success_gcc" -static -Os -s -Wall -Wextra -Werror \
+		"$charger_exit_source" -o "$staging/bin/liuqin-reboot"
 fi
 
 mkdir -p "$staging/lib/firmware/novatek/liuqin"
@@ -560,7 +569,7 @@ fi
 # dispatches applets it cannot find in PATH. That is a property of one vendor's
 # build, not of BusyBox, and nothing outside `sh` gets it -- so link every applet
 # the init script names.
-for applet in basename blockdev cat chmod chroot cp cttyhack cut dmesg findfs \
+for applet in awk grep od tr basename blockdev cat chmod chroot cp cttyhack cut dmesg findfs \
 	hostname ip kill killall ln losetup ls mkdir mount poweroff readlink reboot \
 	setsid sh sha256sum sleep stat switch_root sync telnetd udhcpd umount; do
 	ln -s busybox "$staging/bin/$applet"
@@ -573,6 +582,9 @@ if [ -n "${INSTALLER_RUNTIME:-}" ]; then
 		{ echo 'installer runtime is incomplete' >&2; exit 1; }
 	cp -a "$INSTALLER_RUNTIME"/. "$staging"/
 	mkdir -p "$staging/usr/lib/liuqin"
+	cp "$project_root/tools/lib/install-preflight.sh" "$staging/usr/lib/liuqin/install-preflight.sh"
+	cp "$project_root/tools/lib/install-devmode.sh" "$staging/usr/lib/liuqin/install-devmode.sh"
+	cp "$project_root/tools/lib/install-keep-home.sh" "$project_root/tools/lib/install-keep-home.awk" "$staging/usr/lib/liuqin/"
 	cp "$project_root/tools/lib/install-root.sh" "$staging/usr/lib/liuqin/install-root.sh"
 	cp "$project_root/tools/lib/install-layout.sh" "$staging/usr/lib/liuqin/install-layout.sh"
 	cp "$project_root/tools/lib/install-switch-store.sh" "$staging/usr/lib/liuqin/install-switch-store.sh"

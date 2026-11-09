@@ -1,10 +1,12 @@
 [Unit]
 Description=LiUQIN MiPPS/PPS charger authentication
+Wants=liuqin-mipps-battery-auth.service
+After=liuqin-mipps-battery-auth.service
 Documentation=https://github.com/yzddmr6/xiaomipad-6pro-mainline/blob/main/docs/FASTCHARGE.en.md
 ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/request_vdm_cmd
 
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/flock -n -E 0 /run/liuqin-mipps-auth.lock \
-          /usr/local/libexec/liuqin-mipps-auth --timeout 4 --no-data-role-swap
-TimeoutStartSec=20
+          /usr/local/libexec/liuqin-mipps-auth --timeout 4 --no-data-role-swap --role-first
+TimeoutStartSec=30

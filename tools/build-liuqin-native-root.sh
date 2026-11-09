@@ -42,6 +42,10 @@ die() { printf 'build-liuqin-native-root: %s\n' "$*" >&2; exit 1; }
 say() { printf 'build-liuqin-native-root: %s\n' "$*"; }
 
 [ "$(id -u)" = 0 ] || die 'run as root (tree copy, chroot and ownership preservation need it)'
+# The arm64 chroot runs under qemu-user. The default pointer-authentication
+# emulation makes it several times slower; the implementation-defined
+# algorithm keeps the CPU features the guest sees and only speeds it up.
+export QEMU_CPU=max,pauth-impdef=on
 [ -x "$desktop_root/usr/lib/systemd/systemd" ] || die "not an Ubuntu root: $desktop_root"
 [ -f "$desktop_manifest" ] || die "desktop tree manifest is unavailable: $desktop_manifest"
 [ "$(sha256sum "$desktop_manifest" | cut -d' ' -f1)" = "$desktop_manifest_sha256" ] ||
@@ -93,6 +97,7 @@ stage_debs() {
 	say 'installing the liuqin deb set in a qemu-aarch64 chroot'
 	mkdir -p "$root/tmp/liuqin-debs"
 	cp "$debs_dir"/*.deb "$root/tmp/liuqin-debs/"
+	cp "$project_root/tools/lib/root-package-policy.py" "$root/root/liuqin-root-package-policy.py"
 	cp -L /etc/resolv.conf "$root/etc/resolv.conf.test"
 	cat >"$root/root/native-assemble.sh" <<'EOF'
 #!/bin/sh
@@ -105,6 +110,7 @@ cat >/tmp/liuqin-apt.conf <<'APT'
 #clear DPkg::Post-Invoke;
 APT
 apt-get -c /tmp/liuqin-apt.conf update >/dev/null
+python3 /root/liuqin-root-package-policy.py purge
 # The camera application and its codec plugins are image content, not
 # dependencies of liuqin-device-support: removing Snapshot or a codec must
 # never take the device units with it.  ugly/libav carry the H.264 encoder
@@ -113,7 +119,14 @@ apt-get -c /tmp/liuqin-apt.conf update >/dev/null
 # tells users to run.
 apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libprotobuf-c1 \
 	gnome-snapshot libcamera-ipa gstreamer1.0-libcamera gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-	libcamera-tools v4l-utils >/dev/null
+	libcamera-tools v4l-utils openssh-server fake-hwclock >/dev/null
+# Only the explicit USB developer-mode socket should listen in a fresh image.
+systemctl disable ssh.service ssh.socket
+# Host keys must be generated per tablet by liuqin-devmode check, never cloned.
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
+# The distro unit loads/saves the lower bound, including clean shutdowns.
+systemctl enable fake-hwclock-load.service fake-hwclock-save.service fake-hwclock-save.timer
+fake-hwclock save
 dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	/tmp/liuqin-debs/liuqin-device-support_*_arm64.deb \
 	/tmp/liuqin-debs/liuqin-sensors_*_arm64.deb \
@@ -121,6 +134,7 @@ dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	$(find /tmp/liuqin-debs -maxdepth 1 -name 'liuqin-fingerprint_*_arm64.deb' -print) \
 	/tmp/liuqin-debs/liuqin-device_*_arm64.deb
 dpkg --audit
+python3 /root/liuqin-root-package-policy.py verify
 for pkg in liuqin-firmware liuqin-device-support liuqin-sensors liuqin-kernel liuqin-device; do
 	dpkg-query -W -f='${Status}\n' "$pkg" | grep -qx 'install ok installed'
 done
@@ -141,7 +155,7 @@ EOF
 	chroot "$root" /bin/sh /root/native-assemble.sh
 	umount "$root/proc" "$root/var/cache/apt/archives" "$root/var/lib/apt/lists"
 	trap - EXIT
-	rm -f "$root/root/native-assemble.sh" "$root/etc/resolv.conf.test" \
+	rm -f "$root/root/liuqin-root-package-policy.py" "$root/root/native-assemble.sh" "$root/etc/resolv.conf.test" \
 		"$root/tmp/liuqin-apt.conf" "$root/usr/sbin/policy-rc.d"
 	rm -rf "$root/tmp/liuqin-debs"
 	# cp -L inside the chroot wrote through the distro resolver symlink into the
@@ -196,15 +210,11 @@ END {
 		[ "$(readlink "$root/etc/systemd/system/$1/$2")" = "../$2" ] || die "unit link failed: $1/$2"
 	}
 	link_unit basic.target.requires liuqin-gnome-storage-guard.service
-	link_unit multi-user.target.wants liuqin-gnome-usb-rescue.service
+	link_unit multi-user.target.wants liuqin-mipps-battery-auth.service
 	link_unit multi-user.target.wants liuqin-slpi.service
 	link_unit multi-user.target.wants liuqin-power-keyd.service
 	link_unit graphical.target.wants liuqin-backlight-default.service
-	# liuqin-hide-gunyah-node.service ships in the deb but stays unwired:
-	# the detect-virt containment is deferred to a later iteration (S2-16,
-	# user decision 2026-09-12).  Wire it with
-	#   link_unit sysinit.target.wants liuqin-hide-gunyah-node.service
-	# when that iteration lands.
+	link_unit sysinit.target.wants liuqin-physical-platform.service
 	# The distro default.target already resolves to graphical.target through
 	# /usr/lib; state it in /etc so a distro default change can never silently
 	# drop the installed system to multi-user.
@@ -248,10 +258,10 @@ END {
 		/usr/lib/systemd/systemd /usr/sbin/gdm3 /usr/bin/gnome-shell \
 		/usr/bin/hexagonrpcd \
 		/usr/local/sbin/liuqin-slpi \
-		/usr/local/bin/busybox /usr/local/bin/liuqin-shell \
+		/usr/local/bin/busybox /usr/sbin/liuqin-devmode \
 		/usr/libexec/iio-sensor-proxy \
 		/usr/local/sbin/liuqin-gnome-storage-guard \
-		/usr/local/sbin/liuqin-gnome-usb-rescue \
+		/usr/libexec/liuqin/devmode-gadget \
 		/usr/local/libexec/liuqin-power-keyd \
 		/usr/local/libexec/liuqin-power-key-action \
 		/usr/local/sbin/liuqin-bt-public-addr \
@@ -264,7 +274,7 @@ END {
 		/etc/liuqin-native-root \
 		/etc/dconf/db/local.d/locks/00-liuqin-power \
 		/etc/systemd/system/liuqin-gnome-storage-guard.service \
-		/etc/systemd/system/liuqin-gnome-usb-rescue.service \
+		/usr/lib/systemd/system/liuqin-devmode.service \
 		/etc/systemd/system/liuqin-power-keyd.service \
 		/etc/systemd/system/bluetooth.service.d/20-liuqin-public-address.conf \
 		/etc/systemd/system/liuqin-bt-preconfigure.service \

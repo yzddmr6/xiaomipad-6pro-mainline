@@ -1,0 +1,54 @@
+From: Codex <codex@localhost>
+Subject: [PATCH] avoid unaligned metadata store and null test comparison
+
+Base: linux-msm/hexagonrpc 598b591ae9da6a6cfe2ca5ea78998019ca6395ea
+
+The reverse-tunnel buffer-length header can follow an odd-length payload.
+Write its little-endian value with memcpy instead of an unaligned u32 store.
+The existing ioctl test must skip zero-length comparisons/copies with NULL
+pointers and require the expected output length exactly.
+
+Both problems were reproduced by the existing tests with undefined-behavior
+sanitization; this retains the wire format and does not suppress the checker.
+
+--- a/hexagonrpcd/iobuffer.c
++++ b/hexagonrpcd/iobuffer.c
+@@ -216,7 +216,8 @@
+ 	size_t i;
+ 
+ 	for (i = 0; i < n_outbufs; i++) {
+-		*(uint32_t *) ptr = htole32(outbufs[i].s);
++		uint32_t size = htole32(outbufs[i].s);
++		memcpy(ptr, &size, sizeof(size));
+ 		ptr = &ptr[4];
+ 		align = (align + 4) & 0x7;
+ 
+--- a/tests/test_hexagonrpc.c
++++ b/tests/test_hexagonrpc.c
+@@ -316,7 +316,7 @@
+ 			if (args[i].length != expected[i].len)
+ 				return -1;
+ 
+-			if (memcmp((void *) args[i].ptr,
++			if (args[i].length && memcmp((void *) args[i].ptr,
+ 				   expected[i].ptr,
+ 				   args[i].length))
+ 				return -1;
+@@ -326,12 +326,13 @@
+ 			if (args[i].fd != -1 || args[i].attr != 0)
+ 				return -1;
+ 
+-			if (args[i].length < expected[i].len)
++			if (args[i].length != expected[i].len)
+ 				return -1;
+ 
+-			memcpy((void *) args[i].ptr,
+-			       expected[i].ptr,
+-			       args[i].length);
++			if (args[i].length)
++				memcpy((void *) args[i].ptr,
++				       expected[i].ptr,
++				       args[i].length);
+ 		}
+ 
+ 		return 0;

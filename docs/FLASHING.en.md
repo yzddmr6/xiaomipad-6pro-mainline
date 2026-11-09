@@ -65,9 +65,8 @@ copy of the Ubuntu boot image that the bootloader uses on its own if `boot_a`
 does not load. Ubuntu offers a **Reboot to Android** entry, and Android offers
 a **Reboot to Ubuntu** button through a KernelSU module.
 
-Switching in either direction has not yet been validated on hardware. See
-[Switching Between the Systems](INSTALL-TESTING.en.md#switching-between-the-systems)
-for the commands, the safety rules and the repair procedure.
+See [Switching Between the Systems](INSTALL-TESTING.en.md#switching-between-the-systems)
+for the commands, the safety rules, the repair procedure and what has been validated on hardware.
 
 ## Release Bundle
 

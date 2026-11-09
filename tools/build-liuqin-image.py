@@ -254,6 +254,7 @@ def main():
                 with source.open('rb') as stream:
                     hashes[name] = hashlib.file_digest(stream, 'sha256').hexdigest()
             metadata = {'device': 'liuqin', 'status': 'OFFLINE_ASSEMBLED',
+                        'version': (project / 'VERSION').read_text().strip(),
                         'kernel_commit': lock['commit'],
                         'project_commit': subprocess.check_output(['git', '-C', str(project), 'rev-parse', 'HEAD'], env=env, text=True).strip(),
                         'project_dirty': bool(subprocess.check_output(['git', '-C', str(project), 'status', '--porcelain'], env=env)),

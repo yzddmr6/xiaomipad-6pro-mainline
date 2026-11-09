@@ -5,11 +5,15 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y gdisk busybox-static e2fsprogs bubblewrap openssh-server fake-hwclock
       - name: Python and shell syntax
         run: |
           python3 - <<'PY'
@@ -26,33 +30,42 @@ jobs:
           PY
       - name: Installer offline checks
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y gdisk
           python3 tests/installer.py
           python3 tests/installer-layout.py
           sudo python3 tests/rootfs-archive.py
       - name: Persistent-root fail-closed policy
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y busybox-static
           sh tests/persistent-root.sh
       - name: GNOME storage guard policy
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y busybox-static
           sh tests/storage-guard.sh
       - name: Device-side layout script
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y busybox-static
           sh tests/install-layout.sh
       - name: Device-side home preservation
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y busybox-static e2fsprogs
           sh tests/install-root.sh
+          sudo python3 tests/install-keep-home.py
       - name: Sensor startup policy
         run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y bubblewrap
           sudo python3 tests/sensor-startup.py
+      - name: MiPPS connection and authentication policy
+        run: python3 tests/mipps-role-first.py
+      - name: Physical platform policy
+        run: python3 tests/physical-platform.py
+      - name: Boot-image pin ownership policy
+        run: python3 tests/root-contract-pins.py
+      - name: UFS readiness
+        run: sh tests/ufs-ready.sh
+      - name: Key-only USB developer mode
+        run: |
+          sudo python3 tests/devmode.py
+      - name: Offline time floor
+        run: |
+          python3 tests/clock-floor.py
+      - name: Root package policy
+        run: python3 tests/root-package-policy.py
+      - name: Installer preflight
+        run: sudo python3 tests/install-preflight.py
+      - name: Keyboard conversion and prompting capability
+        run: sudo python3 tests/keyboard-layout.py
