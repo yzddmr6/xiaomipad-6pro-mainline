@@ -220,7 +220,7 @@ def parse_arguments(argv=None):
     parser.add_argument('--root-size', help='linux_root size as NNG or NN%% (default 32G); '
                                             'linux_home takes the remainder')
     parser.add_argument('--keep-home', action='store_true',
-                        help='Reinstall and retain home, ordinary accounts, network connections and Bluetooth pairing')
+                        help='Reinstall and retain home, ordinary accounts, network connections, Bluetooth pairing, time zone and host name')
     parser.add_argument('--rom-dir', type=Path,
                         help='Extracted stock Fastboot ROM directory; required by --layout dual')
     parser.add_argument('--android-boot', type=Path, metavar='IMG',
@@ -595,8 +595,8 @@ def main(argv=None):
                     ' system and keep linux_home. Changing the split requires restoring the stock'
                     ' partition table and installing again —— 已有分区布局不支持原地调整尺寸')
             print('Reinstalling on the existing split layout; linux_home is left untouched.')
-            print('Before formatting, preserve ordinary accounts, NetworkManager connections and Bluetooth'
-                  ' pairing from the old root when readable; conflicts stop installation. Invalid old'
+            print('Before formatting, preserve ordinary accounts, NetworkManager connections, Bluetooth'
+                  ' pairing, time zone and host name from the old root when readable; conflicts stop installation. Invalid old'
                   ' state requires first setup. Fingerprints must be enrolled again.')
         else:
             layout.check_stock_device(disk)

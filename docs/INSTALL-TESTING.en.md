@@ -224,8 +224,8 @@ from the stock `boot.img`).
 The reinstall rebuilds only the Ubuntu system partition `linux_root`:
 
 - Kept: `/home`, ordinary user accounts with their system group memberships, account profiles and
-  pictures, NetworkManager connections and Bluetooth pairings. The tablet returns to the existing
-  login screen, with the existing passwords.
+  pictures, NetworkManager connections, Bluetooth pairings, the time zone and the device name. The
+  tablet returns to the existing login screen, with the existing passwords.
 - Not kept: fingerprint templates (enrol again in Settings → Users), and packages installed or system
   configuration changed on the system partition.
 - Android's `userdata` and `metadata` are not touched.
@@ -458,6 +458,6 @@ installation does not establish that Android recovery has been validated.
 
 On an existing supported split layout, `--no-backup` can replace `--backup PATH` in a `--keep-home` reinstall command. It explicitly skips boot, persist and GPT backups; it cannot be used for initial partitioning or restoring a partition table. Backups remain the default.
 
-`--keep-home` retains the separate `/home` filesystem. Before recreating the system partition, it reads the old root read-only and preserves ordinary accounts (UID/GID 1000–59999), supplementary system-group membership, AccountsService profiles/icons, NetworkManager connections and Bluetooth pairing. A valid migration returns to the existing login screen. Name or UID/GID conflicts in the new root stop installation before formatting; system accounts are never overwritten. A missing, unreadable or malformed old root produces an explicit fallback message and requires first setup again. Fingerprint templates and credentials are not migrated; enroll fingerprints again after installation.
+`--keep-home` retains the separate `/home` filesystem. Before recreating the system partition, it reads the old root read-only and preserves ordinary accounts (UID/GID 1000–59999), supplementary system-group membership, AccountsService profiles/icons, NetworkManager connections, Bluetooth pairing, the time zone and the host name. A valid migration returns to the existing login screen. Name or UID/GID conflicts in the new root stop installation before formatting; system accounts are never overwritten. A missing, unreadable or malformed old root produces an explicit fallback message and requires first setup again. Fingerprint templates and credentials are not migrated; enroll fingerprints again after installation.
 
 The complete bundle also includes `liuqin_boot_ubuntu-v0.3.zip`, `dualboot-tools.zip` and the public fingerprint build input. Normal fingerprint use needs no separate application. Extract `dualboot-tools.zip` to use the documented pinned KernelSU download and Android boot patching commands.

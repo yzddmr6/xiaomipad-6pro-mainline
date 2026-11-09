@@ -70,6 +70,25 @@ snapshot)
    fi
   done
  done <"$state/accounts/users"
+ # The time zone and host name chosen at first setup or in Settings. Only
+ # well-formed values are carried; anything else keeps the image default.
+ link=$("$bb" readlink "$root/etc/localtime" 2>/dev/null || :)
+ zone=
+ case $link in
+ /usr/share/zoneinfo/*) zone=${link#/usr/share/zoneinfo/} ;;
+ ../usr/share/zoneinfo/*) zone=${link#../usr/share/zoneinfo/} ;;
+ esac
+ case $zone in
+ '' | /* | *..* | *[!A-Za-z0-9_+/-]*) ;;
+ *) printf '%s\n' "$zone" >"$state/timezone" ;;
+ esac
+ if [ -f "$root/etc/hostname" ] && [ ! -L "$root/etc/hostname" ]; then
+  name=$("$bb" head -n 1 "$root/etc/hostname")
+  case $name in
+  '' | -* | *[!A-Za-z0-9-]*) ;;
+  *) [ "${#name}" -gt 63 ] || printf '%s\n' "$name" >"$state/hostname" ;;
+  esac
+ fi
  [ "$("$bb" du -sk "$state" | "$bb" cut -f1)" -le 65536 ] || die 'state exceeds 64 MiB; first setup required'
  : >"$state/ready"
  say 'old state captured in RAM (no fingerprint credentials)'
@@ -102,7 +121,20 @@ restore)
  if [ -d "$root/etc/NetworkManager/system-connections" ]; then
   "$bb" find "$root/etc/NetworkManager/system-connections" -type f -exec /bin/busybox chmod 0600 '{}' ';'
  fi
- say 'accounts, network connections and Bluetooth pairing restored; fingerprints must be enrolled again'
+ if [ -s "$state/timezone" ]; then
+  zone=$("$bb" cat "$state/timezone")
+  # Only a zone the new root ships; otherwise the image default stays.
+  if [ -f "$root/usr/share/zoneinfo/$zone" ] || [ -L "$root/usr/share/zoneinfo/$zone" ]; then
+   "$bb" ln -sfn "/usr/share/zoneinfo/$zone" "$root/etc/localtime"
+   [ ! -f "$root/etc/timezone" ] || printf '%s\n' "$zone" >"$root/etc/timezone"
+  fi
+ fi
+ if [ -s "$state/hostname" ]; then
+  name=$("$bb" cat "$state/hostname")
+  printf '%s\n' "$name" >"$root/etc/hostname"
+  "$bb" chmod 0644 "$root/etc/hostname"
+ fi
+ say 'accounts, network connections, Bluetooth pairing, time zone and host name restored; fingerprints must be enrolled again'
  ;;
 *) die 'unknown operation' ;;
 esac

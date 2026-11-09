@@ -56,6 +56,14 @@ def fixture(root, users=('alice',)):
     for user in users:
         put(root, f'old/var/lib/AccountsService/users/{user}', '[User]\nSession=ubuntu\n', 0o600)
         put(root, f'old/var/lib/AccountsService/icons/{user}', 'icon')
+    # Time zone and host name: chosen on the old system, image defaults on the new.
+    for base in ('old', 'new'):
+        for zone in ('Asia/Shanghai', 'Etc/UTC'):
+            put(root, f'{base}/usr/share/zoneinfo/{zone}', 'TZif')
+    (root / 'old/etc/localtime').symlink_to('/usr/share/zoneinfo/Asia/Shanghai')
+    (root / 'new/etc/localtime').symlink_to('/usr/share/zoneinfo/Etc/UTC')
+    put(root, 'old/etc/hostname', 'yzddmr6-liuqin\n')
+    put(root, 'new/etc/hostname', 'liuqin\n')
     if users:
         # The distribution's modes: private profiles, icons readable by GDM.
         for directory, mode in (('', 0o775), ('users', 0o700), ('icons', 0o775)):
@@ -71,7 +79,8 @@ def helper(root, mode, target, ok=True):
     return run(root, '/usr/lib/liuqin/install-keep-home.sh', mode, '/run/state', target, ok=ok)
 
 for case in ('one', 'multiple', 'none', 'missing-optional', 'uid-conflict', 'name-conflict',
-             'gid-conflict', 'uid-leadingzero-conflict', 'bad-shadow', 'missing-root', 'symlink'):
+             'gid-conflict', 'uid-leadingzero-conflict', 'bad-shadow', 'missing-root', 'symlink',
+             'bad-system-settings', 'missing-zone'):
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         users = () if case == 'none' else ('alice', 'bob') if case == 'multiple' else ('alice',)
@@ -80,6 +89,12 @@ for case in ('one', 'multiple', 'none', 'missing-optional', 'uid-conflict', 'nam
             shutil.rmtree(root / 'old/etc/NetworkManager')
             shutil.rmtree(root / 'old/var/lib/bluetooth')
         if case == 'bad-shadow': put(root, 'old/etc/shadow', 'alice:broken\n')
+        if case == 'bad-system-settings':
+            (root / 'old/etc/localtime').unlink()
+            (root / 'old/etc/localtime').symlink_to('/usr/share/zoneinfo/../../../etc/shadow')
+            put(root, 'old/etc/hostname', 'bad name!\n')
+        if case == 'missing-zone':
+            (root / 'new/usr/share/zoneinfo/Asia/Shanghai').unlink()
         if case == 'missing-root': shutil.rmtree(root / 'old')
         if case == 'symlink':
             (root / 'old/etc/shadow').unlink()
@@ -146,6 +161,12 @@ for case in ('one', 'multiple', 'none', 'missing-optional', 'uid-conflict', 'nam
             assert stat.S_IMODE(icon.parent.stat().st_mode) == 0o775
             assert stat.S_IMODE(profile.parent.stat().st_mode) == 0o700
             assert stat.S_IMODE(icon.parent.parent.stat().st_mode) == 0o775
+        carried = case not in ('bad-system-settings', 'missing-zone')
+        assert os.readlink(root / 'new/etc/localtime') == (
+            '/usr/share/zoneinfo/Asia/Shanghai' if carried else '/usr/share/zoneinfo/Etc/UTC')
+        assert (root / 'new/etc/hostname').read_text() == (
+            'liuqin\n' if case == 'bad-system-settings' else 'yzddmr6-liuqin\n')
+        assert stat.S_IMODE((root / 'new/etc/hostname').stat().st_mode) == 0o644
         assert stat.S_IMODE((root / 'run/state').stat().st_mode) == 0o700
     print('PASS:', case)
 
