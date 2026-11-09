@@ -61,8 +61,11 @@ snapshot)
    if [ -f "$root/$path" ]; then
     budget "$root/$path"
     "$bb" mkdir -p "$state/data/${path%/*}"
-    # Profiles remain private files; GDM must be able to traverse the icon directory.
-    "$bb" chmod 0755 "$state/data/var/lib/AccountsService" "$state/data/${path%/*}"
+    # Keep the old root's directory modes: users/ stays private and GDM can
+    # still traverse icons/. The restore copies these modes onto the new root.
+    for dir in var/lib/AccountsService "${path%/*}"; do
+     "$bb" chmod "$("$bb" stat -c %a "$root/$dir")" "$state/data/$dir"
+    done
     "$bb" cp -a "$root/$path" "$state/data/$path"
    fi
   done

@@ -56,6 +56,10 @@ def fixture(root, users=('alice',)):
     for user in users:
         put(root, f'old/var/lib/AccountsService/users/{user}', '[User]\nSession=ubuntu\n', 0o600)
         put(root, f'old/var/lib/AccountsService/icons/{user}', 'icon')
+    if users:
+        # The distribution's modes: private profiles, icons readable by GDM.
+        for directory, mode in (('', 0o775), ('users', 0o700), ('icons', 0o775)):
+            (root / 'old/var/lib/AccountsService' / directory).chmod(mode)
 
 def run(root, *args, ok=True):
     r = subprocess.run(['chroot', str(root), '/bin/sh', *args], capture_output=True, text=True)
@@ -139,8 +143,9 @@ for case in ('one', 'multiple', 'none', 'missing-optional', 'uid-conflict', 'nam
             assert stat.S_IMODE(profile.stat().st_mode) == 0o600
             assert (icon.stat().st_uid, icon.stat().st_gid) == (0, 0)
             assert (profile.stat().st_uid, profile.stat().st_gid) == (0, 0)
-            assert stat.S_IMODE(icon.parent.stat().st_mode) == 0o755
-            assert stat.S_IMODE(icon.parent.parent.stat().st_mode) == 0o755
+            assert stat.S_IMODE(icon.parent.stat().st_mode) == 0o775
+            assert stat.S_IMODE(profile.parent.stat().st_mode) == 0o700
+            assert stat.S_IMODE(icon.parent.parent.stat().st_mode) == 0o775
         assert stat.S_IMODE((root / 'run/state').stat().st_mode) == 0o700
     print('PASS:', case)
 
