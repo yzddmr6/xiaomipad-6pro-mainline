@@ -2,19 +2,14 @@
 
 [中文](INSTALL-TESTING.md)
 
-Initial installation and first boot have been tested on a 256 GB unit. The
-128 GB and 512 GB variants are admitted by the rules in the
-[installation guide](FLASHING.en.md) but have not been tested on real hardware.
-This remains an experimental device port. Keep the tablet attended and prepare a recovery plan.
+This remains an experimental device port. Initial installation, first boot and the reinstall that
+keeps `/home` have been validated on a 256 GB unit. The 128 GB and 512 GB variants are admitted by the
+rules in the [installation guide](FLASHING.en.md) but have not been tested on real hardware. Keep the
+tablet attended and prepare a recovery plan.
 
-An earlier revision of the dual-boot layout has been installed on a 256 GB
-unit: the partition table was split, Ubuntu was installed into `linux_root`
-with `/home` on `linux_home`, and Ubuntu booted from slot B. The current
-revision boots both systems from slot A and switches between them by
-exchanging the boot image in `boot_a` (see
-[Switching Between the Systems](#switching-between-the-systems)). v0.6.0 passed a complete `--layout dual --keep-home --no-backup` installation, initial setup and user acceptance on the same 256 GB unit. Both boot partitions matched the expected image and the existing `/home` was retained. Earlier tests covered Android's first boot after firmware repair and the KernelSU return script under a debug Android boot; automatic KernelSU activation under an ordinary Android boot and the WebUI button remain unverified. The Linux-only layout uses the same
-layout engine but has not been installed on hardware. Treat both as attended
-experiments.
+The dual-boot layout boots both systems from slot A and switches between them by exchanging the boot
+image in `boot_a` (see [Switching Between the Systems](#switching-between-the-systems)). The Linux-only
+layout uses the same layout engine but has not been installed on hardware.
 
 ## Installation Layouts
 
@@ -207,6 +202,39 @@ the host's USB address when automatic route selection is unsuitable. If the
 installer cannot establish its control channel it stops; do not blindly retry
 after a partial installation. Preserve the error output and backup first.
 
+## Upgrading an installed system
+
+The project kernel and device components are updated together with the installation bundle. To
+upgrade a tablet that runs an earlier release, reinstall it from the new bundle and keep `/home`:
+put the tablet into Fastboot (power it off, then hold the power and volume-down keys) and run, in the
+bundle directory:
+
+```sh
+python3 install.py --bundle . --serial DEVICE_SERIAL \
+  --backup /path/to/new-private-backup --erase-userdata --layout dual \
+  --rom-dir /path/to/extracted-stock-rom --android-boot /path/to/boot-ksu.img \
+  --keep-home
+```
+
+For the Linux-only layout, use `--layout linux-only` and drop `--rom-dir` and `--android-boot`.
+In the dual layout, leaving out `--android-boot` stores the ROM's own `boot.img`; if Android used a
+KernelSU image before, pass the same image again (`tools/patch-android-boot-ksu.py` regenerates it
+from the stock `boot.img`).
+
+The reinstall rebuilds only the Ubuntu system partition `linux_root`:
+
+- Kept: `/home`, ordinary user accounts with their system group memberships, account profiles and
+  pictures, NetworkManager connections and Bluetooth pairings. The tablet returns to the existing
+  login screen, with the existing passwords.
+- Not kept: fingerprint templates (enrol again in Settings → Users), and packages installed or system
+  configuration changed on the system partition.
+- Android's `userdata` and `metadata` are not touched.
+
+If the new system already has an account or group with the same name, UID or GID, the installer
+stops before formatting and never overwrites a system account. If the old system partition cannot be
+read or its account files are malformed, the installer says so, and the reinstalled system starts
+with the first-time setup.
+
 ## Reinstalling and Changing the Split
 
 On a tablet that already carries this split layout, the installer refuses to
@@ -340,13 +368,11 @@ store until `liuqin-switch to-ubuntu` rewrites the partition.
 An interruption during a write that the switcher cannot catch, such as a power
 loss, has the same outcome and the same repair.
 
-**Validation status.** The switcher's decision and verification logic is
-covered by host-side tests that run it against ordinary files. Neither
-direction of the switch, the read-only mount on Android, nor the cold boot of
-either system from slot A after a switch has been performed on the tablet.
-Ubuntu has booted from slot B on the earlier revision; booting it from slot A,
-where the bootloader pairs it with slot A's stock `dtbo_a` and `vbmeta_a`, has
-not been tested.
+**Validation status.** The switcher's decision and verification logic is covered by host-side
+tests that run it against ordinary files. On the tablet, Android's first boot after the stock firmware
+repair and a round trip between the systems with the KernelSU module script under a debug Android boot
+have been validated; automatic module activation under an ordinary Android boot and the KernelSU
+Manager WebUI button have not been validated separately.
 
 **Upgrading an earlier dual installation.** Installations made by the earlier
 revision boot Ubuntu from slot B and have no switch store. Reinstall the system

@@ -21,10 +21,11 @@ full installation, initial setup and user acceptance on the test unit.
 
 ## Requirements
 
-v0.6.0 automatically supports the first local account created by initial setup
-(UID 1000), without a preconfigured username. Use the exact matching kernel, FPC
-module, device tree and OEM firmware. The current scope is **one finger for that account**. Kernel/module hashes and wiring
-checks must not be bypassed.
+The first local account created by initial setup (UID 1000) is supported
+automatically, without a preconfigured username. The current scope is **one finger for that account**.
+The FPC module ships with the kernel package and always matches the running kernel; the device-tree,
+supply and wiring checks must not be bypassed, and the required OEM firmware is read from this tablet's
+own partitions at first boot.
 
 A temporary RAM boot does not install a kernel for the next power-on. Fingerprint
 availability after reboot requires the matching kernel and modules to be
