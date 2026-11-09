@@ -118,6 +118,8 @@ apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libp
 	libcamera-tools v4l-utils openssh-server fake-hwclock >/dev/null
 # Only the explicit USB developer-mode socket should listen in a fresh image.
 systemctl disable ssh.service ssh.socket
+# Host keys must be generated per tablet by liuqin-devmode check, never cloned.
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
 # The distro unit loads/saves the lower bound, including clean shutdowns.
 systemctl enable fake-hwclock-load.service fake-hwclock-save.service fake-hwclock-save.timer
 fake-hwclock save
