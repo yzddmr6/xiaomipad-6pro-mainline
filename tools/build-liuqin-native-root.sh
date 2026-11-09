@@ -93,6 +93,7 @@ stage_debs() {
 	say 'installing the liuqin deb set in a qemu-aarch64 chroot'
 	mkdir -p "$root/tmp/liuqin-debs"
 	cp "$debs_dir"/*.deb "$root/tmp/liuqin-debs/"
+	cp "$project_root/tools/lib/root-package-policy.py" "$root/root/liuqin-root-package-policy.py"
 	cp -L /etc/resolv.conf "$root/etc/resolv.conf.test"
 	cat >"$root/root/native-assemble.sh" <<'EOF'
 #!/bin/sh
@@ -105,6 +106,7 @@ cat >/tmp/liuqin-apt.conf <<'APT'
 #clear DPkg::Post-Invoke;
 APT
 apt-get -c /tmp/liuqin-apt.conf update >/dev/null
+python3 /root/liuqin-root-package-policy.py purge
 # The camera application and its codec plugins are image content, not
 # dependencies of liuqin-device-support: removing Snapshot or a codec must
 # never take the device units with it.  ugly/libav carry the H.264 encoder
@@ -126,6 +128,7 @@ dpkg -i /tmp/liuqin-debs/liuqin-firmware_*_all.deb \
 	$(find /tmp/liuqin-debs -maxdepth 1 -name 'liuqin-fingerprint_*_arm64.deb' -print) \
 	/tmp/liuqin-debs/liuqin-device_*_arm64.deb
 dpkg --audit
+python3 /root/liuqin-root-package-policy.py verify
 for pkg in liuqin-firmware liuqin-device-support liuqin-sensors liuqin-kernel liuqin-device; do
 	dpkg-query -W -f='${Status}\n' "$pkg" | grep -qx 'install ok installed'
 done
@@ -146,7 +149,7 @@ EOF
 	chroot "$root" /bin/sh /root/native-assemble.sh
 	umount "$root/proc" "$root/var/cache/apt/archives" "$root/var/lib/apt/lists"
 	trap - EXIT
-	rm -f "$root/root/native-assemble.sh" "$root/etc/resolv.conf.test" \
+	rm -f "$root/root/liuqin-root-package-policy.py" "$root/root/native-assemble.sh" "$root/etc/resolv.conf.test" \
 		"$root/tmp/liuqin-apt.conf" "$root/usr/sbin/policy-rc.d"
 	rm -rf "$root/tmp/liuqin-debs"
 	# cp -L inside the chroot wrote through the distro resolver symlink into the
