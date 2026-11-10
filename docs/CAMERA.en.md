@@ -1,6 +1,6 @@
 # Camera
 
-[中文](CAMERA.md)
+[中文](CAMERA.md) | [Dual-camera preview build and testing](CAMERA-PREVIEW.en.md)
 
 The Xiaomi Pad 6 Pro rear camera (Samsung S5KJN1, 50 MP) works as an
 experimental feature: preview, still photos and video recording run in the
