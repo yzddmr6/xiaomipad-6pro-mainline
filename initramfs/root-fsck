@@ -1,0 +1,23 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Called only on an identified, unmounted persistent ext4 root.
+# Preen never answers yes to repairs requiring operator judgment.
+set -u
+[ "$#" = 2 ] || exit 16
+root_device=$1
+root_log=$2
+if /usr/sbin/e2fsck -p "$root_device" >"$root_log" 2>&1; then
+    root_status=0
+else
+    root_status=$?
+fi
+printf '\nroot-fsck status=%s\n' "$root_status" >>"$root_log"
+case "$root_status" in
+    0|1) exit 0 ;;
+    *)
+        printf '%s\n' 'Root filesystem check failed. Read-write boot is stopped.' \
+            'Boot a maintenance image, back up metadata and inspect the fsck log.' >>"$root_log"
+        cat "$root_log" >&2
+        exit "$root_status"
+        ;;
+esac

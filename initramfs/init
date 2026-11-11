@@ -875,6 +875,14 @@ storage_prepare_persistent_root() {
 		return 1
 	fi
 
+	# The read-only identity probe has been unmounted. Only safe preen
+	# repairs are automatic; a failed check re-seals UFS and keeps the log.
+	if ! root-fsck "$storage_target" /run/root-fsck.log; then
+		log "root fsck failed; read-write boot stopped; maintenance log: /run/root-fsck.log"
+		storage_abort
+		return 1
+	fi
+
 	if [ -z "$storage_root_subdir" ]; then
 		if ! "$BB" mount -t ext4 -o rw,noatime "$storage_target" "$storage_newroot"; then
 			log "persistent root failed its read-write ext4 mount"

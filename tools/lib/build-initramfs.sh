@@ -432,6 +432,17 @@ mkdir -p "$staging/bin" "$staging/sbin" "$staging/etc" "$staging/proc" \
 	"$staging/usr/sbin"
 cp "$busybox" "$staging/bin/busybox"
 cp "$source_dir/init" "$staging/init"
+# Persistent roots need the distro checker before their first writable mount.
+# UBUNTU_DESKTOP_ROOT is already a fixed input of build-liuqin-image.py.
+if [ "$storage_mode" = persistent ]; then
+	fsck_root=${ROOT_FSCK_ROOT:-${UBUNTU_DESKTOP_ROOT:-}}
+	[ -n "$fsck_root" ] || { echo 'set ROOT_FSCK_ROOT to the verified Ubuntu ARM64 root' >&2; exit 1; }
+	python3 "$project_root/tools/lib/build-root-fsck.py" --root "$fsck_root" --out "$staging/fsck-runtime"
+	cp "$staging/fsck-runtime/root-fsck-files.json" "$out_dir/root-fsck-files.json"
+	cp -a "$staging/fsck-runtime"/. "$staging"/
+	rm -rf "$staging/fsck-runtime" "$staging/root-fsck-files.json"
+	install -m 0755 "$source_dir/root-fsck" "$staging/bin/root-fsck"
+fi
 install -m 0755 "$project_root/device/platform/liuqin-physical-platform" "$staging/bin/liuqin-physical-platform"
 cp "$source_dir/etc/issue" "$staging/etc/issue"
 cp "$source_dir/etc/mdev.conf" "$staging/etc/mdev.conf"

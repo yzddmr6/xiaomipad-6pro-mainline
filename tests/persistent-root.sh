@@ -178,6 +178,11 @@ EOF
 exec /usr/bin/$applet "\$@"
 EOF
 	done
+	cat >"$test_root/bin/root-fsck" <<'EOF'
+#!/bin/sh
+printf 'root-fsck %s\n' "$*" >>"$TEST_COMMAND_LOG"
+exit "${TEST_FSCK_STATUS:-0}"
+EOF
 	chmod 0755 "$test_root/bin"/*
 }
 
@@ -1526,6 +1531,15 @@ installer_expect_refused dup-optional '' boot_a boot_b persist linux_root linux_
 installer_expect_refused rw-required persist boot_a boot_b persist
 installer_expect_refused rw-optional linux_root boot_a boot_b persist linux_root
 
+# Any checker failure must re-seal storage without a writable mount.
+for fsck_status in 2 3 4 8 16 32 128; do
+	reset_fixture
+	TEST_FSCK_STATUS=$fsck_status; export TEST_FSCK_STATUS
+	expect_rejected "root-fsck-$fsck_status"
+	! grep -q ' -o rw' "$command_log" || fail "root-fsck-$fsck_status mounted writable"
+	grep -q 'root fsck failed' "$init_log" || fail 'missing visible fsck failure'
+done
+unset TEST_FSCK_STATUS
 printf '%s\n' 'liuqin persistent-root fail-closed tests: PASS'
 
 TEST_CHANNEL_MODE=persistent; export TEST_CHANNEL_MODE
