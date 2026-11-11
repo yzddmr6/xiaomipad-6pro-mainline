@@ -50,6 +50,8 @@
 # the store.
 
 set -u
+
+. "$(dirname -- "$0")/switch-common.sh"
 umask 022
 
 PROG=liuqin-switch
@@ -80,12 +82,15 @@ RW_PART_WAS=
 RW_DISK=
 RW_DISK_WAS=
 RW_FAILED=0
+rb_saved=0
+write_started=0
 
 # ---------------------------------------------------------------------------
 # Output.  Nothing below may call die() from inside a command substitution:
 # that would only leave the subshell, and its cleanup would run twice.
 
 log() {
+	if [ -z "$DEV_DIR" ] && ! is_android; then logger -t "$PROG" -- "$*"; fi
 	[ -n "$LOG_FILE" ] || return 0
 	printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)" "$*" \
 		>>"$LOG_FILE" 2>/dev/null || :
@@ -104,6 +109,7 @@ warn() {
 die() {
 	printf '%s: %s\n' "$PROG" "$*" >&2
 	log "ERROR $*"
+	switch_notify_failure "$*"
 	exit 1
 }
 
@@ -147,23 +153,16 @@ detect_running_slot() {
 		fi
 		return 0
 	fi
+	drs_words=$(cat /proc/cmdline 2>/dev/null)
 	if is_android && command -v getprop >/dev/null 2>&1; then
-		case $(getprop ro.boot.slot_suffix 2>/dev/null) in
-		_a) RUNNING_SLOT=a; return 0 ;;
-		_b) RUNNING_SLOT=b; return 0 ;;
-		esac
-	fi
-	if [ -r /proc/cmdline ] && slot_from_cmdline "$(cat /proc/cmdline)"; then
-		RUNNING_SLOT=$slot_suffix
-		return 0
+		drs_prop=$(getprop ro.boot.slot_suffix)
+		[ -z "$drs_prop" ] || drs_words="$drs_words androidboot.slot_suffix=$drs_prop"
 	fi
 	if [ -r /proc/bootconfig ]; then
-		case $(sed -n 's/^androidboot\.slot_suffix *= *"\{0,1\}\([^" ]*\)"\{0,1\} *$/\1/p' \
-			/proc/bootconfig | head -n 1) in
-		_a) RUNNING_SLOT=a ;;
-		_b) RUNNING_SLOT=b ;;
-		esac
+		drs_config=$(switch_bootconfig_slots /proc/bootconfig | sed 's/^/androidboot.slot_suffix=/')
+		drs_words="$drs_words $drs_config"
 	fi
+	if slot_from_cmdline "$drs_words"; then RUNNING_SLOT=$slot_suffix; fi
 	return 0
 }
 
@@ -245,9 +244,9 @@ ro_set() { # <node> <0|1>
 		return 0
 	fi
 	if [ "$2" = 1 ]; then
-		blockdev --setro "$1"
+		run_logged blockdev --setro "$1"
 	else
-		blockdev --setrw "$1"
+		run_logged blockdev --setrw "$1"
 	fi
 }
 
@@ -300,10 +299,14 @@ close_rw() {
 }
 
 cleanup() {
+	if [ "$rb_saved" = 1 ] && [ "$write_started" = 0 ]; then
+		rm -f "$rb_src"
+	fi
 	close_rw || :
 	if [ "$MOUNTED_HERE" = 1 ]; then
 		MOUNTED_HERE=0
 		LOG_FILE=${LIUQIN_SWITCH_LOG:-}
+		if is_android; then LOG_FILE=${LIUQIN_SWITCH_LOG:-/data/adb/liuqin-switch.log}; fi
 		umount "$MOUNTPOINT" 2>/dev/null || umount -l "$MOUNTPOINT" 2>/dev/null || :
 	fi
 	if [ "$LOCKED" = 1 ]; then
@@ -470,7 +473,7 @@ write_image() { # <image>: whole boot_a; non-zero on a failed write
 		fi
 	fi
 	{ cat "$1" && zeros "$wi_pad"; } |
-		dd of="$BOOT_DEV" bs=1048576 conv=notrunc,fsync 2>/dev/null || return 1
+		run_logged dd of="$BOOT_DEV" bs=1048576 conv=notrunc,fsync || return 1
 	sync
 	if [ -n "$DEV_DIR" ]; then
 		# A write the medium did not keep: the read-back has to catch it.
@@ -480,7 +483,7 @@ write_image() { # <image>: whole boot_a; non-zero on a failed write
 		fi
 	else
 		# Drop the page cache so the read-back comes from the device.
-		blockdev --flushbufs "$BOOT_DEV" 2>/dev/null || :
+		run_logged blockdev --flushbufs "$BOOT_DEV" || return 1
 	fi
 	return 0
 }
@@ -495,44 +498,67 @@ install_set() { # <set> <way-back set>
 		say "dry-run: would write store/$1/boot.img ($is_size bytes, zero-filled to $BOOT_BYTES) to $BOOT_DEV"
 		return 0
 	fi
+	# The Android store is read-only: its verified archived image must be
+	# exactly the live preimage. Linux can save an older Ubuntu image too.
+	rb_saved=0
+	if [ "$STORE_RO" = 1 ]; then
+		check_set "$2" || die 'no verified rollback image; nothing was written'
+		rb_src=$STORE/$2/boot.img
+		rb_want=$(padded_sha "$rb_src")
+		[ "$rb_want" = "$LIVE_FULL" ] || die 'rollback image differs from the live partition; nothing was written'
+	else
+		[ ! -e "$STORE/.switch-rollback.img" ] || die 'a previous rollback image remains; recover it before switching'
+		rb_src=$STORE/.switch-rollback.img
+		rb_want=$LIVE_FULL
+		(umask 077; : > "$rb_src") || die "cannot create rollback image; nothing was written"
+		run_logged dd if="$BOOT_DEV" of="$rb_src" bs=1048576 conv=fsync ||
+			{ rm -f "$rb_src"; die 'cannot save rollback image; nothing was written'; }
+		if [ "$(stat -c %s "$rb_src")" != "$BOOT_BYTES" ] || [ "$(sha_of_file "$rb_src")" != "$rb_want" ]; then
+			rm -f "$rb_src"
+			die 'rollback image did not verify; nothing was written'
+		fi
+		rb_saved=1
+	fi
 	say "writing $BOOT_LABEL <- store/$1/boot.img ($is_size bytes, zero-filled to $BOOT_BYTES)"
 	critical_begin
 	is_wrote=1
 	open_rw
+	write_started=1
 	write_image "$is_src" || is_wrote=0
-	close_rw || die "the read-only flag could not be restored after writing $BOOT_LABEL; not rebooting"
-	[ "$is_wrote" = 1 ] || warn "the write to $BOOT_DEV failed"
 	is_got=$(sha_of_part "$BOOT_DEV" "$BOOT_BYTES")
 	if [ "$is_wrote" = 1 ] && [ "$is_got" = "$is_want" ]; then
+		if ! close_rw; then
+			die 'image written, but read-only protection could not be restored; not rebooting'
+		fi
+		[ "$rb_saved" = 0 ] || rm -f "$rb_src"
 		say "verified $BOOT_LABEL = $is_got"
 		LIVE_FULL=$is_got
 		LIVE_CLASS=$1
 		critical_end
 		return 0
 	fi
-	[ "$is_wrote" = 0 ] || warn "$BOOT_LABEL reads back as $is_got, expected $is_want"
-	rollback "$2"
-	die "$BOOT_LABEL could not be written with the $1 image; the tablet was NOT rebooted"
+	warn "write or readback failed on $BOOT_LABEL (got $is_got, expected $is_want)"
+	if rollback; then
+		die "result=rolled-back: $BOOT_LABEL could not be written with the $1 image; original restored; the tablet was NOT rebooted"
+	fi
+	die "result=rollback-failed: do not reboot; recover $BOOT_LABEL from $rb_src with Fastboot. The tablet was NOT rebooted"
 }
 
-rollback() { # <set to restore>
-	warn "restoring the $1 image in $BOOT_LABEL"
-	if ! check_set "$1"; then
-		warn "the $1 set is unusable too; $BOOT_LABEL is left as it is."
-		warn "do not reboot: flash $BOOT_LABEL from a host with fastboot first."
-		return 1
-	fi
-	rb_want=$(padded_sha "$STORE/$1/boot.img")
+rollback() {
+	warn "restoring the original image in $BOOT_LABEL"
 	rb_wrote=1
-	open_rw
-	write_image "$STORE/$1/boot.img" || rb_wrote=0
-	close_rw || :
+	# The partition remains writable throughout failure recovery.
+	[ "$(padded_sha "$rb_src")" = "$rb_want" ] || rb_wrote=0
+	if [ "$rb_wrote" = 1 ]; then
+		write_image "$rb_src" || rb_wrote=0
+	fi
+	close_rw || rb_wrote=0
 	if [ "$rb_wrote" = 1 ] && [ "$(sha_of_part "$BOOT_DEV" "$BOOT_BYTES")" = "$rb_want" ]; then
-		warn "$BOOT_LABEL holds the $1 image again (verified); not rebooting"
+		[ "$rb_saved" = 0 ] || rm -f "$rb_src"
+		warn "result=rolled-back: $BOOT_LABEL holds the original image again (verified); not rebooting"
 		return 0
 	fi
-	warn "restoring the $1 image did not verify either; do not reboot:"
-	warn "flash $BOOT_LABEL from a host with fastboot first."
+	warn "result=rollback-failed: original image could not be restored; do not reboot. Recovery image: $rb_src"
 	return 1
 }
 
@@ -598,7 +624,8 @@ write_state() { # <set now in boot_a>
 		printf '  "updated": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || echo unknown)"
 		printf '  "boot_sha256": "%s"\n' "$(sums_lookup "$STORE/$1")"
 		printf '}\n'
-	} >"$STORE/state.json.new" && mv "$STORE/state.json.new" "$STORE/state.json"
+	} >"$STORE/state.json.new" && mv "$STORE/state.json.new" "$STORE/state.json" ||
+		die "image installed, but cannot record final state; not rebooting"
 	sync
 }
 
@@ -612,14 +639,12 @@ do_reboot() {
 		: >"$DEV_DIR/.rebooted"
 		return 0
 	fi
-	cleanup
 	sync
 	if is_android; then
-		svc power reboot 2>/dev/null && return 0
-		reboot
-		return
+		run_logged svc power reboot || die 'Image installed, but reboot failed; save your work and reboot manually.'
+		return 0
 	fi
-	systemctl reboot 2>/dev/null || reboot
+	run_logged systemctl reboot || die 'Image installed, but reboot failed; save your work and reboot manually.'
 }
 
 # ---------------------------------------------------------------------------
@@ -633,7 +658,7 @@ require_slot_a() {
 Writing $BOOT_LABEL cannot change what boots next.  From a host in fastboot mode:
   fastboot flash boot_a <image> && fastboot --set-active=a"
 		;;
-	*) warn 'cannot tell which slot this boot came from; assuming slot A' ;;
+	*) die 'cannot determine the running slot; nothing was written' ;;
 	esac
 }
 
@@ -728,13 +753,15 @@ cmd_import_android() { # <image>
 }
 
 cmd_to_ubuntu() {
+	require_switch_battery
 	check_set ubuntu || die "no usable Ubuntu image in store/ubuntu; nothing was written"
 	require_slot_a
 	compute_live
 	if live_is_set ubuntu; then
 		say "$BOOT_LABEL already holds the Ubuntu image; nothing to write"
 		write_state ubuntu
-		return 0
+		do_reboot
+		return $?
 	fi
 	case $LIVE_CLASS in
 	ubuntu)
@@ -769,6 +796,7 @@ copy boot_a off the tablet and import it from Ubuntu with
 }
 
 cmd_to_android() {
+	require_switch_battery
 	check_set android || die "no usable Android image in store/android; nothing was written"
 	check_set ubuntu ||
 		die 'store/ubuntu is unusable, so there would be no way back to Ubuntu; nothing was written'
@@ -777,7 +805,8 @@ cmd_to_android() {
 	if live_is_set android; then
 		say "$BOOT_LABEL already holds the Android image; nothing to write"
 		write_state android
-		return 0
+		do_reboot
+		return $?
 	fi
 	case $LIVE_CLASS in
 	ubuntu) ;;
@@ -912,6 +941,7 @@ else
 		LOG_FILE=$STORE/switch.log
 	else
 		LOG_FILE=${LIUQIN_SWITCH_LOG:-}
+		if is_android; then LOG_FILE=${LIUQIN_SWITCH_LOG:-/data/adb/liuqin-switch.log}; fi
 	fi
 fi
 

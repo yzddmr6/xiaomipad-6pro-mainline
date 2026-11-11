@@ -36,7 +36,7 @@ no() { fail=$((fail + 1)); printf 'FAIL %s\n' "$*"; }
 # BusyBox applets only, as in the RAM image.
 bin=$work/bin
 mkdir -p "$bin"
-for applet in sh cat chmod cp cut date dd head id ls mkdir mv od printf rm sed sha256sum stat sync tr; do
+for applet in dirname mktemp sh cat chmod cp cut date dd head id ls mkdir mv od printf rm sed sha256sum stat sync tr; do
 	ln -s "$busybox" "$bin/$applet"
 done
 srv=$work/srv
@@ -159,6 +159,9 @@ fi
 # --- the switcher accepts what the installer wrote --------------------------
 dev=$work/dev
 mkdir -p "$dev"
+mkdir -p "$dev/power_supply/battery"
+printf 'Battery\n' > "$dev/power_supply/battery/type"
+printf '80\n' > "$dev/power_supply/battery/capacity"
 dd if=/dev/zero of="$dev/boot_a" bs=1048576 count=4 2>/dev/null
 dd if="$store/ubuntu/boot.img" of="$dev/boot_a" conv=notrunc 2>/dev/null
 echo 'androidboot.slot_suffix=_a' >"$dev/cmdline"

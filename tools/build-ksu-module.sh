@@ -55,6 +55,7 @@ members = {
 if not members:
     raise SystemExit("build-ksu-module: nothing to pack")
 members["system/bin/liuqin-switch"] = pathlib.Path(os.environ["SWITCH_SCRIPT"])
+members["system/bin/switch-common.sh"] = pathlib.Path(os.environ["SWITCH_SCRIPT"]).with_name("switch-common.sh")
 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
     for name, path in sorted(members.items()):
         info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
