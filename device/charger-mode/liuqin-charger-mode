@@ -244,7 +244,7 @@ while :; do
         "$screen_tool" "$status_dir" >>"$log_file" 2>&1 &
         screen_pid=$!
     fi
-    charger_log "state=charging ufs=$charger_ufs panel=$charger_panel usb=$charger_usb trend=$trend can_boot=$can_boot $(charger_status)"
+    charger_log "state=charging uptime=$now_s ufs=$charger_ufs panel=$charger_panel usb=$charger_usb trend=$trend charge_counter=$counter current_now=$current can_boot=$can_boot $(charger_status)"
     charger_wait_key
     charger_key_rc=$?
     case $charger_key_rc in
