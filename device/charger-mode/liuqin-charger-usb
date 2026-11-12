@@ -19,17 +19,28 @@ if [ -z "$(cat "$gadget/UDC" 2>/dev/null || true)" ]; then
     echo 'Xiaomi Pad 6 Pro mainline' >"$gadget/strings/0x409/manufacturer"
     echo 'liuqin charging status' >"$gadget/strings/0x409/product"
     echo 'Read-only charging status' >"$gadget/configs/c.1/strings/0x409/configuration"
-    echo 500 >"$gadget/configs/c.1/MaxPower"
+    echo 900 >"$gadget/configs/c.1/MaxPower"
     mkdir -p "$gadget/functions/ncm.usb0"
     echo 02:00:00:00:66:02 >"$gadget/functions/ncm.usb0/dev_addr"
     echo 02:00:00:00:66:01 >"$gadget/functions/ncm.usb0/host_addr"
     [ -L "$gadget/configs/c.1/ncm.usb0" ] ||
         ln -s "$gadget/functions/ncm.usb0" "$gadget/configs/c.1/ncm.usb0"
-    for role in /sys/class/usb_role/*/role; do
-        [ ! -w "$role" ] || echo device >"$role"
-    done
+    # UCSI owns the data role for this attach. A wall charger can use the
+    # host role for MiPPS. Bind NCM when the peripheral UDC is present.
     set -- /sys/class/udc/*
-    [ -e "$1" ] || exit 1
+    if [ ! -e "$1" ]; then
+        # A confirmed SDP/CDP is a data host. On this early-boot path it
+        # may need the peripheral role before DWC3 registers its UDC.
+        type=$(cat /sys/class/power_supply/qcom-battmgr-usb/usb_type 2>/dev/null || :)
+        case "$type" in
+            SDP|CDP|*'[SDP]'*|*'[CDP]'*)
+                for role in /sys/class/usb_role/*/role; do
+                    [ ! -w "$role" ] || echo device >"$role"
+                done ;;
+        esac
+        set -- /sys/class/udc/*
+        [ -e "$1" ] || exit 1
+    fi
     echo "${1##*/}" >"$gadget/UDC"
 fi
 iface=$(cat "$gadget/functions/ncm.usb0/ifname")

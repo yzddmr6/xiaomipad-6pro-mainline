@@ -12,6 +12,7 @@ dev_root=${LIUQIN_CHARGER_DEV_ROOT:-/dev}
 backlight=${LIUQIN_CHARGER_BACKLIGHT:-/sys/class/backlight/ktz8866-backlight}
 bat=${LIUQIN_CHARGER_BAT_ROOT:-/sys/class/power_supply/qcom-battmgr-bat}
 usb=${LIUQIN_CHARGER_USB_ROOT:-/sys/class/power_supply/qcom-battmgr-usb}
+xm=${LIUQIN_CHARGER_XM_ROOT:-/sys/devices/platform/pmic-glink/pmic_glink.power-supply.0/xiaomi}
 blockdev=${LIUQIN_CHARGER_BLOCKDEV:-"/bin/busybox blockdev"}
 key_tool=${LIUQIN_CHARGER_KEY_TOOL:-/bin/liuqin-charger-mode-power-key}
 exit_tool=${LIUQIN_CHARGER_EXIT_TOOL:-/bin/liuqin-charger-mode-exit}
@@ -173,12 +174,15 @@ charger_publish() {
 }
 
 charger_status() {
-	printf 'capacity=%s status=%s voltage_now=%s usb_online=%s usb_type=%s' \
-		"$(charger_value "$bat/capacity")" \
-		"$(charger_value "$bat/status")" \
-		"$(charger_value "$bat/voltage_now")" \
-		"$(charger_value "$usb/online")" \
-		"$(charger_value "$usb/usb_type")"
+    printf 'capacity=%s status=%s voltage_now=%s usb_online=%s real_type=%s' \
+        "$capacity" "$(charger_value "$bat/status")" "$voltage" "$online" "$(charger_value "$xm/real_type")"
+    printf ' usb_uv=%s usb_ua=%s icl_ua=%s source_max_ua=%s bat_temp_decic=%s' \
+        "$(charger_value "$usb/voltage_now")" "$(charger_value "$usb/current_now")" \
+        "$(charger_value "$usb/input_current_limit")" "$(charger_value "$usb/current_max")" "$(charger_value "$bat/temp")"
+    printf ' fastchg=%s verified=%s pump_mv=%s pump1_ma=%s pump2_ma=%s' \
+        "$(charger_value "$xm/fastchg_mode")" "$(charger_value "$xm/pd_verifed")" \
+        "$(charger_value "$xm/bq2597x_bus_voltage")" "$(charger_value "$xm/bq2597x_bus_current")" \
+        "$(charger_value "$xm/bq2597x_slave_bus_current")"
 }
 
 charger_wait_key() {

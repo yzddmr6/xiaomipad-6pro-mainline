@@ -1184,11 +1184,9 @@ echo "liuqin first-boot diagnostics" >"$gadget/strings/0x409/product"
 
 mkdir -p "$gadget/configs/c.1/strings/0x409"
 echo "USB network diagnostics" >"$gadget/configs/c.1/strings/0x409/configuration"
-# Configfs MaxPower is expressed in mA.  This gadget is currently limited to
-# USB2 high-speed, whose SDP ceiling is 500 mA.  The old 250 mA declaration was
-# lower than the ~397 mA ADSP actually accepted and made the descriptor lie;
-# 500 fixes that contract but does not override the host/BC1.2/Type-C decision.
-echo 500 >"$gadget/configs/c.1/MaxPower"
+# Match the stock configfs declaration. Composite encodes at most 500 mA
+# at USB 2 speeds and 896 mA at SuperSpeed. The source grants the budget.
+echo 900 >"$gadget/configs/c.1/MaxPower"
 
 function_name=ncm.usb0
 if ! mkdir "$gadget/functions/$function_name" 2>/dev/null; then

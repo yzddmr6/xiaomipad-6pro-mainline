@@ -75,7 +75,7 @@ start() {
 	echo 'liuqin Linux development' >"$g/strings/0x409/manufacturer"
 	echo 'Developer mode' >"$g/strings/0x409/product"
 	echo 'NCM developer mode' >"$c/strings/0x409/configuration"
-	echo 500 >"$c/MaxPower"
+	echo 900 >"$c/MaxPower"
 	echo "$LIUQIN_DEVICE_MAC" >"$f/dev_addr"
 	echo "$LIUQIN_HOST_MAC" >"$f/host_addr"
 	ln -s "$f" "$c/ncm.usb0"
