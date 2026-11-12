@@ -123,6 +123,47 @@ class Gates(unittest.TestCase):
                 (self.dev / '.rebooted').unlink()
                 (self.bin / 'dd').unlink()
 
+    @unittest.skipIf(ERHAI, 'liuqin recovery-only policy')
+    def test_low_charge_can_reboot_verified_android_without_writing(self):
+        for value in ('0', '39', 'bad', None):
+            with self.subTest(value=value):
+                self.fill('android')
+                capacity = self.battery / 'capacity'
+                if value is None:
+                    capacity.unlink(missing_ok=True)
+                else:
+                    capacity.write_text(value)
+                before = self.partitions()
+                self.fail_write('boot', persistent=True)
+                result = self.run_switch('to-android')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(before, self.partitions())
+                self.assertTrue((self.dev / '.rebooted').exists())
+                self.assertTrue((self.root / 'fault').exists())
+                self.assertFalse((self.store / 'state.json').exists())
+                (self.bin / 'dd').unlink()
+
+        # The verified Android target is independently bootable; an unusable
+        # Linux backup must not turn a no-write recovery into a refusal.
+        self.fill('android')
+        (self.store / 'ubuntu/SHA256SUMS').unlink()
+        result = self.run_switch('to-android')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.dev / '.rebooted').exists())
+
+    @unittest.skipIf(ERHAI, 'liuqin recovery-only policy')
+    def test_low_charge_recovery_still_requires_slot_and_exact_target(self):
+        (self.battery / 'capacity').write_text('1')
+        self.fill('android')
+        (self.dev / 'cmdline').write_text('androidboot.slot_suffix=_b')
+        self.assert_refused_unchanged('to-android')
+        (self.dev / 'cmdline').write_text('androidboot.slot_suffix=_a')
+        image = self.dev / 'boot_a'
+        data = bytearray(image.read_bytes())
+        data[4096] ^= 1
+        image.write_bytes(data)
+        self.assert_refused_unchanged('to-android')
+
     def test_dry_run_and_no_reboot(self):
         for target in ('android', 'ubuntu'):
             before = self.partitions()
