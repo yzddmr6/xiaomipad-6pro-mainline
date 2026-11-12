@@ -38,6 +38,8 @@ def verify_payloads(root, directory, rows):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for option in ('root','old-debs','new-debs','out'):p.add_argument('--'+option,type=Path,required=True)
+    p.add_argument('--old-contract',type=Path)
+    p.add_argument('--new-contract',type=Path)
     a=p.parse_args()
     if os.geteuid()!=0:p.error('run under sudo in heavy.slice')
     base,old,new,work=[x.resolve() for x in (a.root,a.old_debs,a.new_debs,a.out)]
@@ -123,7 +125,8 @@ def main():
             notifier=root/'usr/lib/systemd/user/mainline-release-notifier.timer'
             enabled=root/'etc/systemd/user/timers.target.wants/mainline-release-notifier.timer'
             if notifier.exists():
-                assert enabled.is_symlink() and enabled.exists(),'shipped notifier must be enabled'
+                assert enabled.is_symlink(),'shipped notifier must be enabled'
+                assert guest('test','/etc/systemd/user/timers.target.wants/mainline-release-notifier.timer','-ef','/usr/lib/systemd/user/mainline-release-notifier.timer')==''
                 release=root/'usr/share/mainline-release/version'
                 assert release.read_text().strip()==next(r['Version'] for r in sets[kind] if r['Package']=='liuqin-device-support')
             else:
@@ -132,8 +135,20 @@ def main():
                 state=(root/path).stat()
                 assert (state.st_uid,state.st_gid,stat.S_IMODE(state.st_mode))==(0,0,mode),(phase,path,state)
 
+            contract=a.new_contract if kind=='new' else a.old_contract
+            pins=0
+            if contract:
+                lines=contract.read_text().splitlines()
+                assert lines.pop(0)=='LIUQIN_NATIVE_ROOT_CONTRACT_V1'
+                for line in lines:
+                    digest,name=line.split('  ',1)
+                    assert name.startswith('/') and '..' not in Path(name).parts
+                    target=root/name[1:]
+                    assert target.is_file() and not target.is_symlink() and target.stat().st_uid==target.stat().st_gid==0,name
+                    with target.open('rb') as data:assert hashlib.file_digest(data,'sha256').hexdigest()==digest,(phase,name)
+                    pins+=1
             report['phases'].append({'phase':phase,'versions':{r['Package']:r['Version'] for r in sets[kind]},
-                'dpkg_audit_empty':True,'unrelated_packages_unchanged':True,'data_preserved':True,
+                'boot_contract_pins_verified':pins,'dpkg_audit_empty':True,'unrelated_packages_unchanged':True,'data_preserved':True,
                 'non_conffile_verification_clean':True,'payload_files_sha256_checked':payload_files})
         assert packages()==before
         report['status']='OFFLINE_APT_PASS'
