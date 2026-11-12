@@ -103,9 +103,9 @@ def main():
     worker = None
     last_attach = None
     last_log = None
-    # An initial sample in a hysteresis band uses the warmer stock tier.
-    # A cooler sample subsequently releases at the same threshold as the OEM.
-    stage = len(TRIGGER)
+    # The stock monitor starts in tier zero and applies rising thresholds.
+    # Its clearing thresholds apply only after a higher tier was entered.
+    stage = 0
     # The desktop needs no periodic thermal polling when external power is
     # absent. Open the event channel before the first online read.
     events = socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM, 15)
@@ -124,7 +124,7 @@ def main():
                 stop_auth(worker)
                 worker = None
                 previous = last_attach = None
-                stage = len(TRIGGER)
+                stage = 0
                 # A transition racing the online read is already queued.
                 events.recv(65536)
                 continue
@@ -135,7 +135,9 @@ def main():
                 stage = tier(stage, observation)
                 level = (ON if screen_on() else OFF)[stage]
             except (OSError, ValueError):
-                stage = len(TRIGGER)
+                # Keep the last valid hysteresis state. A missing reading
+                # still requests level 15 and clears authentication readiness.
+                pass
             applied = False
             try:
                 vote = single('/sys/devices/platform/pmic-glink/*/xiaomi/thermal_level_requested')
