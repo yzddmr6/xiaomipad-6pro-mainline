@@ -168,6 +168,21 @@ for patch in "$iio_polling_patch" "$iio_release_patch" "$iio_availability_patch"
 	git -C "$work/source/iio-sensor-proxy" apply --check "$patch" || die "sensor patch does not apply: $patch"
 	git -C "$work/source/iio-sensor-proxy" apply "$patch"
 done
+# Import the reviewed shared light-polling and shutdown lifecycle fixes.
+python3 - "$project_root/device/sensors" "$work/source/iio-sensor-proxy" <<'PYEXTRA'
+import hashlib, json, pathlib, subprocess, sys
+base, source = map(pathlib.Path, sys.argv[1:])
+for entry in json.loads((base / 'extra-patches.json').read_text()):
+    patch = base / entry['path']
+    assert hashlib.sha256(patch.read_bytes()).hexdigest() == entry['sha256']
+    subprocess.run(['git', '-C', str(source), 'apply', '--check', str(patch)], check=True)
+    subprocess.run(['git', '-C', str(source), 'apply', str(patch)], check=True)
+PYEXTRA
+cp "$project_root/device/sensors/patches/0009-iio-sensor-proxy-quiesce-callbacks-before-close.patch" \
+    "$work/source/liuqin-shutdown.patch"
+cp -a "$work/source/iio-sensor-proxy" "$work/source/iio-negative-source"
+git -C "$work/source/iio-negative-source" apply --reverse \
+    --include=src/iio-sensor-proxy.c "$work/source/liuqin-shutdown.patch"
 git -C "$work/source/iio-sensor-proxy" diff --check ||
 	die 'patched iio-sensor-proxy tree has whitespace errors'
 
@@ -304,13 +319,34 @@ DESTDIR=/build/dest meson install -C /build/work/libssc
 cp -a /build/dest/usr/. /usr/
 ldconfig
 
-build_one iio-sensor-proxy -Dssc-support=enabled -Dtests=true -Dgtk-tests=false -Dgtk_doc=false \
-	-Dudevrulesdir=/usr/lib/udev/rules.d -Dsystemdsystemunitdir=/usr/lib/systemd/system
+iio_options='-Dssc-support=enabled -Dtests=true -Dgtk-tests=false -Dgtk_doc=false -Dudevrulesdir=/usr/lib/udev/rules.d -Dsystemdsystemunitdir=/usr/lib/systemd/system'
+# One option set for the production build and its negative control. In
+# particular, explicit install paths avoid an unnecessary udev.pc dependency.
+build_one iio-sensor-proxy $iio_options
+# The same real D-Bus shutdown regression must fail without the runtime fix.
+rm -rf /build/work/iio-negative-source /build/work/iio-negative
+cp -a /build/source/iio-negative-source /build/work/iio-negative-source
+meson setup /build/work/iio-negative /build/work/iio-negative-source \
+    --prefix=/usr --libdir=lib/aarch64-linux-gnu --buildtype=release \
+    $iio_options
+meson compile -C /build/work/iio-negative -j "$jobs" test-shutdown
+negative_rc=0
+timeout 60 /build/work/iio-negative/src/test-shutdown \
+    >/build/work/iio-sensor-proxy/meson-logs/shutdown-negative.log 2>&1 || negative_rc=$?
+[ "$negative_rc" != 0 ] && [ "$negative_rc" != 124 ] || {
+    echo 'shutdown negative control did not fail as expected' >&2; exit 1;
+}
+grep -q 'client_vanished_cb' /build/work/iio-sensor-proxy/meson-logs/shutdown-negative.log || {
+    cat /build/work/iio-sensor-proxy/meson-logs/shutdown-negative.log >&2; exit 1;
+}
+meson test -C /build/work/iio-sensor-proxy test-shutdown --print-errorlogs
+cp /build/work/iio-sensor-proxy/meson-logs/testlog.txt \
+    /build/work/iio-sensor-proxy/meson-logs/shutdown-positive.log
 # All four SSC cases register QRTR service 400.  Run the other 21 tests in
 # parallel, then the SSC cases serially: full coverage without the false race
 # where one mock removes another's service.
 test_list=$(meson test -C /build/work/iio-sensor-proxy --list)
-non_ssc_tests=$(printf '%s\n' "$test_list" | grep -v 'Tests.test_ssc_')
+non_ssc_tests=$(printf '%s\n' "$test_list" | grep -v -e 'Tests.test_ssc_' -e 'test-shutdown')
 ssc_tests=$(printf '%s\n' "$test_list" | grep 'Tests.test_ssc_')
 [ "$(printf '%s\n' "$non_ssc_tests" | grep -c .)" = 21 ] || {
 	printf '%s\n' 'unexpected non-SSC iio test count' >&2
@@ -399,6 +435,12 @@ grep -Eq '^test_liuqin_ssc_claim_during_coldplug .* ok$' "$ssc_log" || {
 	printf '%s\n' 'SSC Claim-before-coldplug regression did not pass' >&2
 	exit 1
 }
+# The upstream light test uses the same SSC mock, now with asynchronous
+# discovery assertions and serialized polling; do not retain a known failure.
+meson test -C /build/work/iio-sensor-proxy Tests.test_ssc_light \
+    --num-processes 1 --print-errorlogs --timeout-multiplier=4
+cp /build/work/iio-sensor-proxy/meson-logs/testlog.txt \
+    /build/work/iio-sensor-proxy/meson-logs/light-positive.log
 cleanup_ssc_server
 trap - EXIT HUP INT TERM
 DESTDIR=/build/dest meson install -C /build/work/iio-sensor-proxy
@@ -451,6 +493,9 @@ for qrtr_lib in "$merged"/usr/lib/aarch64-linux-gnu/libqrtr.so.1*; do
 	cp -a "$qrtr_lib" "$dest/usr/lib/aarch64-linux-gnu/"
 done
 
+for evidence in shutdown-negative shutdown-positive light-positive; do
+    cp "$merged/build/work/iio-sensor-proxy/meson-logs/$evidence.log" "$out_dir/artifacts/$evidence.log"
+done
 say 'assembling static policy and exact-ROM registry'
 # hexagonrpc derives its unit directory from libdir and consequently installs
 # three upstream templates below the multiarch library directory.  They are

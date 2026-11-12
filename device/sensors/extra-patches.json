@@ -1,0 +1,30 @@
+[
+  {
+    "path": "patches/0001-wait-for-discovery-notifications.patch",
+    "sha256": "ee92fbd3a3155d4ecb100ffe90df14d9784e43c5ccd26fc1f2162f1039b66622",
+    "source_repository": "https://github.com/yzddmr6/xiaomipad-8pro-mainline",
+    "source_commit": "35e3da2c9c16",
+    "source_path": "device/sensors/libssc/sensorproxy-patches/0001-wait-for-discovery-notifications.patch"
+  },
+  {
+    "path": "patches/0007-iio-sensor-proxy-serialize-ssc-light-polling.patch",
+    "sha256": "0df2077947affd5d2e197d72b680f7e635f7b8a87c4764c41cbd105d1e358b47",
+    "source_repository": "https://github.com/yzddmr6/xiaomipad-8pro-mainline",
+    "source_commit": "35e3da2c9c16",
+    "source_path": "device/sensors/libssc/sensorproxy-patches/0007-iio-sensor-proxy-serialize-ssc-light-polling.patch"
+  },
+  {
+    "path": "patches/0008-iio-sensor-proxy-report-ssc-light-discovery-errors.patch",
+    "sha256": "fa0f0a919279c346d00274f25b0abd9acf70bed3df446d6ea37b0639ef3bfe48",
+    "source_repository": "https://github.com/yzddmr6/xiaomipad-8pro-mainline",
+    "source_commit": "35e3da2c9c16",
+    "source_path": "device/sensors/libssc/sensorproxy-patches/0008-iio-sensor-proxy-report-ssc-light-discovery-errors.patch"
+  },
+  {
+    "path": "patches/0009-iio-sensor-proxy-quiesce-callbacks-before-close.patch",
+    "sha256": "2884c72f6285ce00af5bb3f9301e6648c7e3416081987e2529f09b2259eb0692",
+    "source_repository": "https://github.com/yzddmr6/xiaomipad-8pro-mainline",
+    "source_commit": "35e3da2c9c16",
+    "source_path": "device/sensors/libssc/sensorproxy-patches/0009-iio-sensor-proxy-quiesce-callbacks-before-close.patch"
+  }
+]

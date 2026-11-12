@@ -332,6 +332,8 @@ build_sensors() {
 	root=$work/$pkg/root
 	mkdir -p "$root"
 	tar --extract --file "$sensor_stack" --directory "$root" --no-same-owner
+	install -D -m 0644 "$project_root/device/sensors/extra-patches.json" \
+		"$root/usr/share/doc/liuqin-sensors/extra-patches.json"
 	for required in \
 		usr/bin/hexagonrpcd \
 		usr/bin/ssccli \
