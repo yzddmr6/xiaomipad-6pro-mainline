@@ -82,7 +82,7 @@ def main():
         config=root/'etc/initramfs-tools/update-initramfs.conf'
         config.parent.mkdir(parents=True,exist_ok=True);config.write_text('update_initramfs=no\n')
         sentinel=root/'home/.liuqin-apt-fixture';sentinel.write_text('preserve-data\n');sentinel.chmod(0o600)
-        env=dict(os.environ,QEMU_CPU='max,pauth-impdef=on',DEBIAN_FRONTEND='noninteractive')
+        env=dict(os.environ,QEMU_CPU='max,pauth-impdef=on',DEBIAN_FRONTEND='noninteractive',LC_ALL='C')
         def guest(*args):
             return subprocess.check_output(['chroot',str(root),*args],text=True,env=env,stderr=subprocess.STDOUT,timeout=1800)
         def packages():
@@ -92,13 +92,22 @@ def main():
         for row in sets['old']:
             assert before.get(row['Package'])==[row['Version'],'install ok installed'],(row,before.get(row['Package']))
         diverts=guest('dpkg-divert','--list')
+        (root/'run/empty-sources.list').write_text('')
+        (root/'run/empty-sources.d').mkdir()
         report={'base':str(base),'network':'isolated empty namespace','block_devices':False,'phases':[]}
         for phase,kind,downgrade in [('upgrade','new',False),('rollback','old',True)]:
-            argv=['apt-get','-o','Dir::Etc::sourcelist=/dev/null','-o','Dir::Etc::sourceparts=-',
-                  '-o','Dpkg::Options::=--force-confold','--no-download','--no-remove','--assume-yes']
+            argv=['apt-get','-o','Dir::Etc::sourcelist=/run/empty-sources.list','-o','Dir::Etc::sourceparts=/run/empty-sources.d',
+                  '-o','Dpkg::Options::=--force-confold','-o','Dpkg::Use-Pty=0','--no-remove','--assume-yes']
             if downgrade:argv.append('--allow-downgrades')
+            # Local .deb acquisition still needs APT's file-copy method. Network
+            # isolation and empty source lists enforce offline operation.
             argv+=['install']+['/run/'+kind+'/'+r['file'] for r in sets[kind]]
-            (work/(phase+'.log')).write_text(guest(*argv))
+            try:
+                transcript=guest(*argv)
+            except subprocess.CalledProcessError as error:
+                (work/(phase+'.log')).write_text(error.output)
+                raise
+            (work/(phase+'.log')).write_text(transcript)
             expected=dict(before)
             for row in sets[kind]:expected[row['Package']]=[row['Version'],'install ok installed']
             after=packages();assert after==expected,{'unexpected_packages':{k:after.get(k) for k in after.keys()|expected.keys() if after.get(k)!=expected.get(k)}}
@@ -111,6 +120,18 @@ def main():
             differences=[l for l in verification.splitlines() if ' c ' not in l]
             assert not differences,differences
             payload_files=verify_payloads(root, new if kind=='new' else old, sets[kind])
+            notifier=root/'usr/lib/systemd/user/mainline-release-notifier.timer'
+            enabled=root/'etc/systemd/user/timers.target.wants/mainline-release-notifier.timer'
+            if notifier.exists():
+                assert enabled.is_symlink() and enabled.exists(),'shipped notifier must be enabled'
+                release=root/'usr/share/mainline-release/version'
+                assert release.read_text().strip()==next(r['Version'] for r in sets[kind] if r['Package']=='liuqin-device-support')
+            else:
+                assert not enabled.is_symlink(),'rollback left a dangling notifier timer'
+            for path,mode in [('etc',0o755),('usr',0o755),('var',0o755),('tmp',0o1777)]:
+                state=(root/path).stat()
+                assert (state.st_uid,state.st_gid,stat.S_IMODE(state.st_mode))==(0,0,mode),(phase,path,state)
+
             report['phases'].append({'phase':phase,'versions':{r['Package']:r['Version'] for r in sets[kind]},
                 'dpkg_audit_empty':True,'unrelated_packages_unchanged':True,'data_preserved':True,
                 'non_conffile_verification_clean':True,'payload_files_sha256_checked':payload_files})
