@@ -437,7 +437,9 @@ cp "$source_dir/init" "$staging/init"
 if [ "$storage_mode" = persistent ]; then
 	fsck_root=${ROOT_FSCK_ROOT:-${UBUNTU_DESKTOP_ROOT:-}}
 	[ -n "$fsck_root" ] || { echo 'set ROOT_FSCK_ROOT to the verified Ubuntu ARM64 root' >&2; exit 1; }
-	python3 "$project_root/tools/lib/build-root-fsck.py" --root "$fsck_root" --out "$staging/fsck-runtime"
+	set --
+	[ "$charger_mode" != 1 ] || set -- --library libdrm.so.2
+	python3 "$project_root/tools/lib/build-root-fsck.py" --root "$fsck_root" --out "$staging/fsck-runtime" "$@"
 	cp "$staging/fsck-runtime/root-fsck-files.json" "$out_dir/root-fsck-files.json"
 	cp -a "$staging/fsck-runtime"/. "$staging"/
 	rm -rf "$staging/fsck-runtime" "$staging/root-fsck-files.json"
@@ -481,10 +483,22 @@ if [ "$storage_mode" = persistent ]; then
 	fi
 fi
 if [ "$charger_mode" = 1 ]; then
+	# No module loader or persistent root is available in charger mode. The
+	# enabled DP component also gates the shared DSI DRM master through FSA4480.
+	charger_config=${KERNEL_OUT:?set KERNEL_OUT for the charging runtime}/.config
+	for symbol in DRM_MSM DRM_MSM_DSI DRM_PANEL_NOVATEK_NT36532 \
+		SM_DISPCC_8450 TYPEC_MUX_FSA4480 QCOM_PMIC_GLINK DRM_AUX_HPD_BRIDGE \
+		BACKLIGHT_KTZ8866 USB_CONFIGFS USB_CONFIGFS_NCM; do
+		grep -qx "CONFIG_$symbol=y" "$charger_config" || {
+			echo "error: charger root dependency CONFIG_$symbol must be built in" >&2; exit 1;
+		}
+	done
 	printf '%s\n' hold-v1 >"$staging/etc/liuqin-charger-mode"
 	chmod 0644 "$staging/etc/liuqin-charger-mode"
 	cp "$charger_mode_source" "$staging/bin/liuqin-charger-mode"
 	chmod 0755 "$staging/bin/liuqin-charger-mode"
+	cp "$project_root/device/charger-mode/liuqin-charger-usb" "$staging/bin/liuqin-charger-usb"
+	chmod 0755 "$staging/bin/liuqin-charger-usb"
 	for charger_helper in key exit; do
 		case $charger_helper in
 		key) charger_source=$charger_key_source; charger_output=liuqin-charger-mode-power-key ;;
@@ -499,6 +513,15 @@ if [ "$charger_mode" = 1 ]; then
 			exit 1
 		fi
 	done
+	# The distro DRM ABI and runtime are bundled from the same pinned ARM64
+	# root as e2fsck. The status renderer owns a standard dumb-buffer scanout.
+	[ -n "${fsck_root:-}" ] || { echo 'charger display requires the fixed Ubuntu root' >&2; exit 1; }
+	"$slot_success_gcc" -Os -s -Wall -Wextra -Werror -I/usr/include/libdrm \
+		"$project_root/device/charger-mode/liuqin-charger-screen.c" \
+		"$fsck_root/usr/lib/aarch64-linux-gnu/libdrm.so.2" \
+		-Wl,-rpath-link,"$fsck_root/usr/lib/aarch64-linux-gnu" \
+		-o "$staging/bin/liuqin-charger-screen"
+	readelf -h "$staging/bin/liuqin-charger-screen" | grep -q 'Machine:.*AArch64' || exit 1
 fi
 
 # Use the installer's existing RESTART2 helper for product recovery too.

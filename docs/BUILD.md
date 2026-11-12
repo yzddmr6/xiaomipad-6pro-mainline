@@ -21,7 +21,7 @@ Ubuntu 24.04 主机依赖：
 ```sh
 sudo apt-get update
 sudo apt-get install build-essential bc bison flex libssl-dev libelf-dev \
-  gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu python3 git ccache kmod rsync
+  gcc-aarch64-linux-gnu libc6-dev-arm64-cross binutils-aarch64-linux-gnu python3 git ccache kmod rsync libdrm-dev
 ```
 
 在项目目录执行：

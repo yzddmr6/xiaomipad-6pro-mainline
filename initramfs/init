@@ -1135,9 +1135,9 @@ fi
 # ABL uses androidboot.mode=charger when external power wakes a deeply
 # discharged tablet.  A normal desktop boot in that state consumes more than
 # an SDP input can supply and creates a boot/drain/reboot loop.  Product GNOME
-# images therefore divert here, before USB gadget setup, any read-write mount,
+# images therefore divert here, before normal-system USB setup, any read-write mount,
 # slot metadata update, or stage-2/systemd handoff.  The charger process keeps
-# retrying the read-only/low-power proof and never turns a failed proof into a
+# the UFS read-only proof and never turns a failed proof into a
 # normal boot.
 charger_boot=false
 case " $(cat /proc/cmdline 2>/dev/null) " in
@@ -1152,15 +1152,17 @@ if { [ "$storage_profile" = gnome ] || [ "$storage_profile" = native ]; } && [ "
 		[ "$charger_marker_hash" = 837fa926ba93f4a56e06d7e511f782465cebb250f67d74faee1d16bfc80aede1 ] &&
 		[ -x /bin/liuqin-charger-mode ] &&
 		[ -x /bin/liuqin-charger-mode-power-key ] &&
-		[ -x /bin/liuqin-charger-mode-exit ]; then
+		[ -x /bin/liuqin-charger-mode-exit ] &&
+		[ -x /bin/liuqin-charger-screen ] &&
+		[ -x /bin/liuqin-charger-usb ]; then
 		charger_marker_ok=true
 	fi
 	if [ "$charger_marker_ok" = true ]; then
-		log "charger boot: entering read-only low-power hold before stage 2"
+		log "charger boot: entering read-only charging status before stage 2"
 		exec /bin/liuqin-charger-mode
 		log "critical: charger-mode process returned; refusing normal boot"
 	else
-		log "critical: charger boot lacks its exact low-power state machine; refusing normal boot"
+		log "critical: charger boot lacks its exact charging state machine; refusing normal boot"
 	fi
 	# PID 1 must stay alive even if a damaged helper cannot exec.  Never fall
 	# through to gadget setup, persistent-root preparation, or GNOME.

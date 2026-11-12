@@ -14,12 +14,16 @@ import shutil
 import subprocess
 
 
-def build(root, out):
+def build(root, out, extra_libraries=()):
     root = root.resolve()
     if out.exists():
         raise ValueError('output must be a new directory')
     libraries = root / 'usr/lib/aarch64-linux-gnu'
     pending = [('usr/sbin/e2fsck', root / 'usr/sbin/e2fsck')]
+    for name in extra_libraries:
+        if not name or Path(name).name != name or name in ('.', '..'):
+            raise ValueError('expected library basename: ' + name)
+        pending.append(('lib/aarch64-linux-gnu/' + name, libraries / name))
     files = {}
     while pending:
         relative, source = pending.pop()
@@ -65,8 +69,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--out', type=Path, required=True)
+    parser.add_argument('--library', action='append', default=[],
+                        help='additional ARM64 library from the same fixed root')
     args = parser.parse_args()
-    build(args.root, args.out)
+    build(args.root, args.out, args.library)
 
 
 if __name__ == '__main__':
