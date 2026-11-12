@@ -14,16 +14,8 @@ import shutil
 import subprocess
 
 
-def build(root, out, extra_libraries=()):
-    root = root.resolve()
-    if out.exists():
-        raise ValueError('output must be a new directory')
+def elf_closure(root, pending):
     libraries = root / 'usr/lib/aarch64-linux-gnu'
-    pending = [('usr/sbin/e2fsck', root / 'usr/sbin/e2fsck')]
-    for name in extra_libraries:
-        if not name or Path(name).name != name or name in ('.', '..'):
-            raise ValueError('expected library basename: ' + name)
-        pending.append(('lib/aarch64-linux-gnu/' + name, libraries / name))
     files = {}
     while pending:
         relative, source = pending.pop()
@@ -49,6 +41,20 @@ def build(root, out, extra_libraries=()):
                 raise ValueError('unexpected ELF interpreter: ' + interpreter)
             pending.append((interpreter.lstrip('/'), libraries / Path(interpreter).name))
         files[relative] = source
+    return files
+
+
+def build(root, out, extra_libraries=()):
+    root = root.resolve()
+    if out.exists():
+        raise ValueError('output must be a new directory')
+    libraries = root / 'usr/lib/aarch64-linux-gnu'
+    pending = [('usr/sbin/e2fsck', root / 'usr/sbin/e2fsck')]
+    for name in extra_libraries:
+        if not name or Path(name).name != name or name in ('.', '..'):
+            raise ValueError('expected library basename: ' + name)
+        pending.append(('lib/aarch64-linux-gnu/' + name, libraries / name))
+    files = elf_closure(root, pending)
     # e2fsck.conf is optional; preserve any distro policy when present.
     config = root / 'etc/e2fsck.conf'
     if config.exists():

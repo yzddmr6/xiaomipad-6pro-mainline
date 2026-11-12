@@ -221,6 +221,9 @@ PY
 	done <"$work/$pkg.files"
 	[ "$(wc -l <"$work/$pkg.files" | tr -d ' ')" -ge 30 ] ||
 		die 'device-support overlay copy is implausibly small'
+	# dpkg removes the packaged enablement link on a whole-set downgrade.
+	install -d "$root/etc/systemd/system/multi-user.target.wants"
+	ln -sfn ../liuqin-charge-thermal.service "$root/etc/systemd/system/multi-user.target.wants/liuqin-charge-thermal.service"
 	# Shared user-session release notification; only the project identity differs.
 	while IFS= read -r rel; do
 		install -D -m "$(stat -c '%a' "$project_root/device/release-notifier/$rel")" \

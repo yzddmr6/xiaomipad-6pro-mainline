@@ -3,7 +3,7 @@
   "branch": "liuqin-6.17",
   "upstream_url": "https://github.com/sm8450-mainline/linux.git",
   "upstream_base": "a19585977c11fa662435b607cb9ff4ac7133092e",
-  "commit": "fdf3c8b8b912022ef6f01538cc5e4c943459c93b",
+  "commit": "966d59198cf63d9d2c77fdf85652ab3f071038ad",
   "config_sha256": "6685aa73fe334092fb37825eeedd84979d1a6ce8100e2a48d94f008a1978db6b",
   "config_fragments": [
     "device/configs/liuqin-firstboot.config",

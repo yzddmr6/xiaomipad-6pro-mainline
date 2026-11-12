@@ -1,0 +1,12 @@
+[Unit]
+Description=Xiaomi Pad 6 Pro battery thermal policy
+Before=liuqin-mipps-battery-auth.service liuqin-mipps-auth.service
+
+[Service]
+Type=exec
+RuntimeDirectory=liuqin-charge-thermal
+ExecStart=/usr/local/libexec/liuqin-charge-thermal
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

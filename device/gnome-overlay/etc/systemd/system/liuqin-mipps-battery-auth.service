@@ -1,4 +1,6 @@
 [Unit]
+ConditionPathExists=/run/liuqin-charge-thermal/ready
+After=liuqin-charge-thermal.service
 Description=LiUQIN dual fuel-gauge authentication
 Documentation=https://github.com/yzddmr6/xiaomipad-6pro-mainline/blob/main/docs/FASTCHARGE.md
 ConditionPathExistsGlob=/sys/devices/platform/pmic-glink/*/xiaomi/verify_digest

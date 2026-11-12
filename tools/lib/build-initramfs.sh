@@ -489,6 +489,11 @@ if [ "$charger_mode" = 1 ]; then
 	sh "$project_root/tools/lib/check-charger-roots.sh" "$charger_config"
 	printf '%s\n' hold-v1 >"$staging/etc/liuqin-charger-mode"
 	chmod 0644 "$staging/etc/liuqin-charger-mode"
+	python3 "$project_root/tools/lib/build-charger-runtime.py" --root "$fsck_root" --kernel "$KERNEL_OUT" --out "$staging"
+	mkdir -p "$staging/usr/local/libexec"
+	for helper in liuqin-mipps-auth liuqin-charge-thermal; do
+		install -m 0755 "$project_root/device/gnome-overlay/usr/local/libexec/$helper" "$staging/usr/local/libexec/$helper"
+	done
 	cp "$charger_mode_source" "$staging/bin/liuqin-charger-mode"
 	chmod 0755 "$staging/bin/liuqin-charger-mode"
 	cp "$project_root/device/charger-mode/liuqin-charger-usb" "$staging/bin/liuqin-charger-usb"

@@ -210,6 +210,7 @@ END {
 		[ "$(readlink "$root/etc/systemd/system/$1/$2")" = "../$2" ] || die "unit link failed: $1/$2"
 	}
 	link_unit basic.target.requires liuqin-gnome-storage-guard.service
+	link_unit multi-user.target.wants liuqin-charge-thermal.service
 	link_unit multi-user.target.wants liuqin-mipps-battery-auth.service
 	link_unit multi-user.target.wants liuqin-slpi.service
 	link_unit multi-user.target.wants liuqin-power-keyd.service

@@ -226,7 +226,18 @@ previous_time=
 trend=measuring
 charger_usb=unavailable
 screen_pid=
-trap '[ -z "$screen_pid" ] || kill "$screen_pid" 2>/dev/null || :' EXIT
+thermal_pid=
+# The same stock thermal/attach policy runs before gauge or adapter authentication.
+# Calibration and program bytes come from this boot image.
+if [ -x /usr/local/libexec/liuqin-charge-thermal ] && [ "$test_allow_regular" != 1 ]; then
+    for module in qcom-vadc-common qcom-spmi-adc5; do
+        path="/lib/modules/$(uname -r)/$module.ko"
+        [ ! -f "$path" ] || /bin/busybox insmod "$path" || charger_log "adc-load=$module failed"
+    done
+    /usr/bin/python3 -I -B /usr/local/libexec/liuqin-charge-thermal --charger-only >/dev/kmsg 2>&1 &
+    thermal_pid=$!
+fi
+trap 'for child in $screen_pid $thermal_pid; do kill "$child" 2>/dev/null || :; done' EXIT
 trap 'exit 130' HUP INT TERM
 while :; do
     charger_ufs=failed
