@@ -82,7 +82,12 @@ def main():
     parser.add_argument('--charger-only', action='store_true')
     parser.add_argument('--cold-attach-auth', action='store_true')
     args = parser.parse_args()
-    if b'xiaomi,liuqin' not in Path('/proc/device-tree/compatible').read_bytes().split(b'\0'):
+    root = Path('/proc/device-tree')
+    compatible = (root/'compatible').read_bytes().split(b'\0')
+    native = b'xiaomi,liuqin' in compatible
+    stock = (b'qcom,cape-mtp' in compatible and
+             (root/'model').read_bytes().rstrip(b'\0') == b'Liuqin based on Qualcomm Technologies, Inc SM8475')
+    if not (native or stock):
         return 2
     helper = '/usr/local/libexec/liuqin-mipps-auth'
     if args.cold_attach_auth:
