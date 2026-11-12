@@ -55,12 +55,11 @@ def temperatures():
 
 
 def screen_on():
-    light = Path('/sys/class/backlight/ktz8866-backlight')
-    # Unknown display state uses the higher of the two stock cooling levels.
+    # OEM changes this selector on panel blank/unblank, not at minimum
+    # brightness. A missing or ambiguous DRM state uses the warmer profile.
     try:
-        powered = read_int(light/'bl_power') == 0
-        brightness = read_int(light/'actual_brightness')
-        return powered and brightness > 0
+        connector = single('/sys/class/drm/card*-DSI-*/dpms')
+        return connector.read_text().strip() != 'Off'
     except (OSError, ValueError):
         return True
 
@@ -175,7 +174,9 @@ def main():
                 if attach and applied and observation is not None and attach != last_attach:
                     # The shipping helper authenticates both gauges before the
                     # adapter. It waits for SNK_Ready and validates this attach.
-                    worker = subprocess.Popen([sys.executable, __file__, '--cold-attach-auth'], start_new_session=True)
+                    worker = subprocess.Popen([sys.executable, __file__, '--cold-attach-auth'],
+                                              start_new_session=True, stdout=subprocess.DEVNULL,
+                                              stderr=subprocess.DEVNULL)
                     last_attach = attach
             time.sleep(2)
     finally:
