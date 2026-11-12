@@ -486,13 +486,7 @@ if [ "$charger_mode" = 1 ]; then
 	# No module loader or persistent root is available in charger mode. The
 	# enabled DP component also gates the shared DSI DRM master through FSA4480.
 	charger_config=${KERNEL_OUT:?set KERNEL_OUT for the charging runtime}/.config
-	for symbol in DRM_MSM DRM_MSM_DSI DRM_PANEL_NOVATEK_NT36532 \
-		SM_DISPCC_8450 TYPEC_MUX_FSA4480 QCOM_PMIC_GLINK DRM_AUX_HPD_BRIDGE \
-		BACKLIGHT_KTZ8866 USB_CONFIGFS USB_CONFIGFS_NCM; do
-		grep -qx "CONFIG_$symbol=y" "$charger_config" || {
-			echo "error: charger root dependency CONFIG_$symbol must be built in" >&2; exit 1;
-		}
-	done
+	sh "$project_root/tools/lib/check-charger-roots.sh" "$charger_config"
 	printf '%s\n' hold-v1 >"$staging/etc/liuqin-charger-mode"
 	chmod 0644 "$staging/etc/liuqin-charger-mode"
 	cp "$charger_mode_source" "$staging/bin/liuqin-charger-mode"
