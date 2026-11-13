@@ -1,0 +1,9 @@
+# Mozilla's documented priority, scoped to Firefox to leave Thunderbird alone.
+Package: firefox firefox-l10n-*
+Pin: origin packages.mozilla.org
+Pin-Priority: 1000
+
+# Keep Ubuntu's apt-to-snap transition from replacing the native browser.
+Package: firefox
+Pin: release o=Ubuntu
+Pin-Priority: -1
