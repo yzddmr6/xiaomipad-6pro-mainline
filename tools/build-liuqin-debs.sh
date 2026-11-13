@@ -25,7 +25,11 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out_dir=${OUT_DIR:-"$project_root/out/liuqin-debs"}
 # The release version of the device packages lives in VERSION and is bumped
 # with every release; LIUQIN_DEB_VERSION overrides it for test builds only.
-version=${LIUQIN_DEB_VERSION:-$(cat "$project_root/VERSION")}
+# The unversioned-revision 0.6.2 was already installed by prerelease images.
+# Record the Debian revision so APT replaces those binaries as well.
+upstream_version=$(cat "$project_root/VERSION")
+case $upstream_version in 0.6.2) package_version=0.6.2-1 ;; *) package_version=$upstream_version ;; esac
+version=${LIUQIN_DEB_VERSION:-$package_version}
 case $version in
 [0-9]*.[0-9]*.[0-9]*) ;;
 *) printf 'build-liuqin-debs: invalid package version: %s\n' "$version" >&2; exit 1 ;;
