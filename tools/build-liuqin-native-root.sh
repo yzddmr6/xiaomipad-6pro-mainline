@@ -102,6 +102,9 @@ stage_firefox_input() {
 	install -Dm644 "$browser_dir/mozilla.sources" "$root/etc/apt/sources.list.d/mozilla.sources"
 	install -Dm644 "$browser_dir/mozilla.pref" "$root/etc/apt/preferences.d/mozilla"
 	install -Dm644 "$browser_dir/packages.mozilla.org.asc" "$root/etc/apt/keyrings/packages.mozilla.org.asc"
+	install -Dm644 "$browser_dir/mimeapps.list" "$root/etc/xdg/mimeapps.list"
+	install -Dm644 "$browser_dir/90_liuqin-firefox.gschema.override" \
+		"$root/usr/share/glib-2.0/schemas/90_liuqin-firefox.gschema.override"
 }
 
 stage_debs() {
@@ -137,6 +140,8 @@ apt-get -c /tmp/liuqin-apt.conf install -y --allow-downgrades --no-install-recom
     /var/cache/apt/archives/firefox_160.0~build1_arm64.deb
 test "$(dpkg-query -W -f='${Version}' firefox)" = '160.0~build1'
 test -x /usr/lib/firefox/firefox
+glib-compile-schemas --strict /usr/share/glib-2.0/schemas
+test -f /usr/share/applications/firefox.desktop
 # The camera application and its codec plugins are image content, not
 # dependencies of liuqin-device-support: removing Snapshot or a codec must
 # never take the device units with it.  ugly/libav carry the H.264 encoder
