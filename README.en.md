@@ -99,7 +99,7 @@ Not yet supported: front camera, gyroscope and magnetometer, ambient light senso
 | Battery / charging | qcom_battmgr / UPower | ✅ Working | Charge level and charging state, wall charging |
 | Fast charging | Xiaomi charger authentication | 🟡 Partial | Fast charging for chargers that pass Xiaomi authentication; other USB PD chargers charge at standard PD levels (9 V / 2 A). See [Fast charging](docs/FASTCHARGE.en.md) |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; the charge level can drop under heavy load |
-| Charging while powered off | Boot-stage charging hold | 🟡 Partial | Keeps charging while off and plugged in, without a charging animation; press and hold the power key to boot |
+| Charging while powered off | Boot-stage charger mode | 🟡 Partial | Shows the battery level and charging trend. At low charge the tablet stays in charger mode. Hold Power to boot once the battery reaches 40% and 3.7 V |
 | Standby | suspend-to-idle | 🟡 Partial | Stays asleep after suspending and resumes normally on a timer wake; standby power consumption is not optimised yet |
 
 Not yet supported: hibernation to disk, writing the hardware clock (the clock is set from the network after boot; when starting offline it continues from the last shutdown).

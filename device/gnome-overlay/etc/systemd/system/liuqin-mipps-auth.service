@@ -1,6 +1,4 @@
 [Unit]
-ConditionPathExists=/run/liuqin-charge-thermal/ready
-After=liuqin-charge-thermal.service
 Description=LiUQIN MiPPS/PPS charger authentication
 Wants=liuqin-mipps-battery-auth.service
 After=liuqin-mipps-battery-auth.service
