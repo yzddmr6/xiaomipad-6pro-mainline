@@ -318,14 +318,19 @@ EOF
 		/usr/libexec/gnome-control-center-set-debian-keyboard
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ]; then\n'
+		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl daemon-reload || :; fi\n'
 		printf '\tif command -v dconf >/dev/null; then dconf update || :; fi\n'
-		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
+		printf '\tdeb-systemd-helper enable tablet-charge-sample.timer >/dev/null\n'
+		printf '\tif [ -d /run/systemd/system ]; then deb-systemd-invoke start tablet-charge-sample.timer >/dev/null; fi\n'
 		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
 		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
 		printf '\trm -f /etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service /etc/systemd/system/liuqin-gnome-usb-rescue.service\n'
 		printf '\tsystemctl enable liuqin-physical-platform.service\n'
+		# The 0.6.2 prerm removes the user timer link even on upgrade.
+		# deb-systemd-helper then treats the missing link as an admin disable.
+		printf '\tcase "${2:-}" in 0.6.2|0.6.2-1) systemctl --global enable mainline-release-notifier.timer ;; esac\n'
 		printf '\tdeb-systemd-helper --user enable mainline-release-notifier.timer >/dev/null\n'
 		printf '\t/usr/local/libexec/liuqin-keyboard-layout --migrate\n'
 		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
@@ -340,12 +345,23 @@ EOF
 #!/bin/sh
 set -e
 case $1 in remove|upgrade|deconfigure)
-    deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
+    if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.7.0; then
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop tablet-charge-sample.timer tablet-charge-sample.service >/dev/null
+        fi
+        deb-systemd-helper disable tablet-charge-sample.timer >/dev/null
+    fi
+    # 0.6.2 introduced this unit. Leave its link in place across upgrades
+    # and rollbacks to versions that still ship it.
+    if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.6.2; then
+        deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
+    fi
     ;;
 esac
 EOF
 	cat >>"$root/DEBIAN/postrm" <<'EOF'
 if [ "$1" = purge ]; then
+    deb-systemd-helper purge tablet-charge-sample.timer >/dev/null
     deb-systemd-helper --user purge mainline-release-notifier.timer >/dev/null
 fi
 EOF

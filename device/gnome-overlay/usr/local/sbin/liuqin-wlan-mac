@@ -8,6 +8,7 @@ set -eu
 
 state=${LIUQIN_WLAN_MAC_STATE:-/var/lib/liuqin-private/wlan-mac}
 sys_class_net=${LIUQIN_SYS_CLASS_NET:-/sys/class/net}
+udev_data=${LIUQIN_UDEV_DATA:-/run/udev/data}
 ip=${LIUQIN_IP:-/usr/sbin/ip}
 wait_seconds=${LIUQIN_WLAN_MAC_WAIT_SECONDS:-30}
 
@@ -52,9 +53,21 @@ find_wlan()
 	return 1
 }
 
+# The netdev can be visible before udevd has finished its add event, which
+# renames it.  udevd writes the device's database entry only after that, so wait
+# for the entry and use the name that is current once it exists.
+udev_ready()
+{
+	iface=$(find_wlan) || return 1
+	index=$(cat "$sys_class_net/$iface/ifindex" 2>/dev/null) || return 1
+	[ -e "$udev_data/n$index" ] || return 1
+	[ "$(find_wlan)" = "$iface" ]
+}
+
 elapsed=0
-while ! iface=$(find_wlan); do
-	[ "$elapsed" -lt "$wait_seconds" ] || die 'QCA6490 WLAN netdev did not appear'
+while ! udev_ready; do
+	[ "$elapsed" -lt "$wait_seconds" ] ||
+		die 'QCA6490 WLAN netdev did not appear or udev did not finish with it'
 	sleep 1
 	elapsed=$((elapsed + 1))
 done
