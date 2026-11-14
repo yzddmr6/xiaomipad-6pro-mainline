@@ -106,6 +106,8 @@
 
 ## 使用与维护
 
+每天匿名检查一次 GitHub 上的最新版本，有新版时提示；可在通知设置中关闭。
+
 Ubuntu 软件包通过 APT 管理。项目内核与设备组件随安装包整体更新：升级时用新版安装包执行保留 `/home` 的重装，见[升级已安装的系统](docs/INSTALL-TESTING.md#升级已安装的系统)。不要混用不同版本的启动镜像和系统组件。
 
 **开发者模式。** `sudo liuqin-devmode on` 开启经 USB 线的 root SSH 登录，默认关闭，只接受密钥登录；安装时加 `--enable-rescue` 会写入主机的公钥。主机上用 `python3 tools/liuqin-devmode-ssh.py root` 连接，用完执行 `sudo liuqin-devmode off`。
