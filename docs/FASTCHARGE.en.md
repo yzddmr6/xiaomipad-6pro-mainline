@@ -1,25 +1,19 @@
 # Fast charging
 
-The Xiaomi Pad 6 Pro negotiates its charging power through the ADSP charger
-firmware. The firmware opens the high-voltage charge path only after the adapter
-has passed Xiaomi's private authentication, which the stock system performs from
-userspace. This page describes how the project integrates that authentication and
-how standard USB-PD PPS adapters are handled.
+The Xiaomi Pad 6 Pro’s ADSP charger firmware negotiates voltage and current. Once both fuel gauges pass authentication, the system selects a charging path according to the adapter’s capabilities.
 
 | Path | Condition | Result |
 | --- | --- | --- |
-| MiPPS | Xiaomi adapter passes UVDM authentication | vendor fast charging, up to the adapter's rated power |
-| Standard PPS | any PPS adapter, authentication not passed | 9 V, about 12 W by default; high-voltage path with the switch described below |
-| Plain PD, DCP, SDP | no PPS contract | firmware default |
+| MiPPS | Adapter passes Xiaomi’s UVDM handshake | Enables the Xiaomi high-voltage fast-charge path |
+| Standard PPS | Adapter does not pass the Xiaomi handshake and the negotiated PPS contract is ready | Enables the standard PPS high-voltage fast-charge path by default |
+| Plain PD | Fixed-voltage contract | Uses the negotiated fixed-voltage profile |
+| DCP, SDP | Conventional USB power | Firmware charges within the source’s capabilities |
 
 The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. Computer USB ports supply only the power available from the port and cable. Battery charge can fall when system demand exceeds that input.
 
 ## Validation status
 
-The kernel interface and fuel-gauge authentication are verified on the device:
-every attribute of the `xiaomi` group is readable, and both cells authenticate
-successfully. After fuel-gauge authentication, standard PD adapters negotiate
-9 V / 2 A.
+Both fuel gauges passed authentication on the tablet. A plain PD adapter negotiated 9 V / 2 A.
 
 **MiPPS adapter authentication is verified on hardware.** With an original
 Xiaomi 67 W MDY-15-EQ adapter (USB-A) and the original A-to-C cable, the daemon
@@ -35,27 +29,18 @@ completed the real handshake and fast charging followed:
 | battery-side power, 12 samples in 56 s | 43.99 – 45.94 W (mean 45.4 W) |
 | state of charge / battery temperature | 34 – 36 % / 34.0 – 35.5 °C |
 
-"Battery-side power" is `Vbat × Ibat` as reported by the fuel gauge, with the two
-charge pumps reporting about 3.0 A and 2.8 A at roughly 9 V. It is not a
-measurement at the adapter output, and it is not a claim that the adapter
-delivers its full 67 W: the firmware keeps adjusting the charge profile as
-temperature and state of charge change.
+The power in the table is the fuel gauge’s battery voltage multiplied by the net charging current. Over the same interval, the two charge pumps reported about 3.0 A and 2.8 A at roughly 9 V. The firmware adjusts power as battery temperature and state of charge change.
 
-A third-party charger that implements Xiaomi's protocol (Cuktech) also passed
-the same handshake with `adapter_id 0000a819`, so the path is not limited to
-first-party adapters. No low-state-of-charge power measurement was taken with
-that charger.
-
-The standard PPS switch is off by default; see "Standard PPS adapters" below to enable it.
+A third-party Cuktech charger that implements Xiaomi’s protocol also passed the handshake with `adapter_id 0000a819`. No low-state-of-charge power reading was taken with that charger.
 
 ## Components
 
 | Path | Role |
 | --- | --- |
 | `/usr/local/libexec/liuqin-mipps-auth` | authentication daemon (Python, GPL-2.0-only; see `NOTICE`) |
-| `/etc/systemd/system/liuqin-mipps-auth.service` | oneshot unit that runs the daemon with `--role-first` |
+| `/etc/systemd/system/liuqin-mipps-auth.service` | Runs the helper, waits for a ready contract and retries failed handshakes. Allows standard PPS by default. |
 | `/etc/systemd/system/liuqin-mipps-battery-auth.service` | authenticates both fuel gauges at boot, before the charger unit |
-| `/etc/udev/rules.d/90-liuqin-mipps-auth.rules` | starts the unit on Type-C partner attach and USB power online |
+| `/etc/udev/rules.d/90-liuqin-mipps-auth.rules` | Starts authentication on Type-C partner attach or USB power online. Clears the high-voltage permission when USB power goes offline. |
 
 The daemon talks to the charger firmware through the `xiaomi` attribute group
 that the project kernel exports on the PMIC GLINK power-supply device:
@@ -69,35 +54,15 @@ on kernels without the interface.
 
 ## Authentication sequence
 
-The daemon runs once per Type-C attach, in this order:
+1. At boot, the battery service writes a random challenge to each fuel gauge through `verify_digest`, checks its HMAC-SHA256 response and sets `authentic` and `slave_authentic`. During adapter authentication the helper verifies any gauge that has yet to pass.
+2. The service waits for a PD contract. It proceeds when `real_type` is `PD` or `PD_PPS` and `current_state` is `SNK_Ready`. For PPS it also waits if `pdo2` still reads zero. Polling slows after the first 8 seconds. A late contract can still trigger authentication for as long as the same partner stays online.
+3. For adapters reporting Xiaomi’s SVID, the helper takes the Type-C host data role first. A failed role request stops that attempt before any adapter command is sent.
+4. Through `request_vdm_cmd`, the helper sends UVDM commands 1–3, a session seed (command 4) and a random challenge (command 5). Once it has an adapter ID, it follows the stock completion order, sending REMOVE_COMPENSATION (command 7) followed by VERIFIED (command 6). The original charger used this sequence in testing, skipping reverse authentication (command 8), which timed out on this hardware.
+5. The helper logs the Xiaomi handshake result as `pd_auth` and writes `pd_verifed` to tell the firmware whether to allow the high-voltage path. The firmware chooses the active charging mode according to battery level and temperature.
 
-1. Fuel-gauge authentication for both cells through `verify_digest`: a random
-   challenge is written, the gauge's HMAC-SHA256 response is read back and
-   compared, and `authentic` / `slave_authentic` are set from the result. The
-   boot unit does this once at boot; the daemon repeats it only when the flags
-   are missing.
-2. Wait for the source to settle. The firmware does not answer the handshake
-   while it is still negotiating, so the daemon waits up to 8 s until `real_type`
-   reports `PD` or `PD_PPS` and `current_state` reaches `SNK_Ready`.
-3. Take the Type-C host data role, which is the role the stock system holds
-   while a Xiaomi adapter is attached. The role is requested once per attach,
-   and a refused request stops the run before any adapter command is sent.
-4. Adapter authentication through `request_vdm_cmd`: the UVDM handshake
-   (commands 1 to 3), a session seed (command 4), a random challenge
-   (command 5), then the Android completion order, REMOVE_COMPENSATION (command 7) followed
-   by VERIFIED (command 6). Command 8, the reverse authentication response, is not sent: it
-   timed out on this hardware, and the stock system's own log shows the same
-   7 → 6 order.
-5. `pd_verifed` is written with the verdict. The firmware then selects the
-   charge profile; `fastchg_mode`, `power_max` and `real_type` report the result.
+The helper includes the keys used for the handshake.
 
-The keys used by the handshake are shared across Xiaomi devices and adapters
-and are included in the daemon.
-
-The order matters. Taking the host role after the handshake, or finishing with
-the old 6 → 8 → 7 sequence, completed authentication but did not sustain fast
-charging on this hardware. The attempt is remembered per Type-C attach, so a
-failing adapter is not retried in a loop.
+The service makes up to three attempts per round, waiting 1 second before the first retry and 2 seconds before the second. The journal records the failed step and reason. If a fixed PD contract does not enable the high-voltage path, the service waits for a switch to PPS and tries again on the same connection. A successful result can be reused only for the current attachment.
 
 A full run reports the sequence in the journal:
 
@@ -116,65 +81,58 @@ pd_verifed=1
 
 ### Data role
 
-The host role is requested only when the attached partner reports Xiaomi's
-`adapter_svid` (`0x2717`). Any other source — a computer, a dock, a third-party
-charger — keeps the negotiated device role, so USB device mode and USB
-networking keep working while charging. Those sources are still probed for
-authentication, and a Xiaomi phone presents the same SVID and is treated the same
-way as a Xiaomi adapter.
-
-The daemon waits for the negotiated contract before reading SVID and data role.
-It checks the Type-C partner throughout the handshake, so detach or replacement
-cannot reuse a previous verdict.
+The service requests the host role only when the partner reports Xiaomi’s `adapter_svid` (`0x2717`). Other partners keep their negotiated data role while the helper probes for Xiaomi authentication. The helper checks the attachment identity during the handshake. Unplugging or replacing the partner invalidates the previous result.
 
 ## Standard PPS adapters
 
-Only adapters that pass Xiaomi authentication enable the high-voltage path by default.
-This includes compatible third-party adapters; branding alone is not the criterion.
-Other adapters retain the firmware's ordinary PD/PPS contract. The old packaged
-`10-allow-unverified-adapter.conf` is removed on upgrade. The battery authentication
-unit is enabled on installation and upgrade.
+The service enables `--allow-unverified-adapter` by default. Even if a third-party adapter does not answer the Xiaomi handshake, the service sets `pd_verifed=1` when both gauges have passed and the PPS contract is still ready. In this case the journal shows `pd_auth=0` for standard PPS. Upgrades remove the old packaged `10-allow-unverified-adapter.conf` override. The helper accepts `--no-allow-unverified-adapter` to require Xiaomi authentication for the high-voltage path.
 
-The command-line `--allow-unverified-adapter` override remains an explicit opt-in,
-subject to a PD_PPS contract and the cable capability check (3 A is rejected;
-5 A is accepted; without cable identity it relies on source-side enforcement).
-The shipped service does not pass this option, even for a 5 A cable or a charger
-that ignores UVDM. Authentication failures and detach clear `pd_verifed`; only a
-successful handshake bound to the current Type-C partner can be reused.
+Standard PPS also works with a 3 A cable. A compliant source advertises at most 3 A with a detachable 3 A cable. Before constructing a PPS request, the tablet firmware checks each Augmented Power Data Object (APDO) for its voltage range and maximum current. It skips any entry that cannot supply the requested voltage or current.
+
+## Charging records
+
+`tablet-charge-sample.timer` samples about once a minute while the system is awake. The sleep hook also records one sample before suspend and one after resume. During continuous battery use, the periodic log records only the offline boundary. Powered samples include the time, battery level and temperature, USB and battery voltage and current (µV and µA), firmware mode, authentication flags, pump bus voltage, both pump currents and the requested thermal level. Positive battery current means net charging. The connector temperature field `pump.connector_temp_decic` is in tenths of a degree Celsius. Unavailable measurements are recorded as `null`.
+
+Records are stored only on the tablet in `/var/lib/tablet-charge/` (mode 0700), one JSON object per line. The current file, `samples.jsonl`, rotates to `samples.1.jsonl` at about 4 MiB. Both files have mode 0600. To print one live sample to the terminal without appending to the log, run
+
+```sh
+/usr/libexec/tablet-charge-sample --stdout
+```
+
+⟦DRAFT:G-CONN⟧
+
+## Connector overtemperature protection
+
+While USB power is online, the kernel reads the charging port thermistor once per second and sends the temperature to the ADSP charger firmware. The stock firmware determines the overtemperature threshold and protective action.
+
+⟦DRAFT:G-CONN⟧
 
 ## Verifying
 
 ```sh
 X=/sys/devices/platform/pmic-glink/pmic_glink.power-supply.0/xiaomi
 journalctl -u liuqin-mipps-auth -n 40
-cat "$X/real_type" "$X/pd_verifed" "$X/fastchg_mode" "$X/power_max"
+cat "$X/real_type" "$X/current_state" "$X/pd_verifed" "$X/fastchg_mode"
+cat "$X/bq2597x_bus_voltage" "$X/bq2597x_bus_current" "$X/bq2597x_slave_bus_current"
 cat /sys/class/typec/port0/data_role
 cat /sys/class/power_supply/qcom-battmgr-usb/voltage_now
-cat /sys/class/power_supply/qcom-battmgr-bat/current_now
+B=/sys/class/power_supply/qcom-battmgr-bat
+cat "$B/voltage_now" "$B/current_now" "$B/capacity" "$B/temp"
 ```
 
 `/sys/class/power_supply/qcom-battmgr-usb/current_now` can read 0 while the
 charge pumps carry the current; use the battery-side power and the
 `bq2597x_bus_*` attributes for the charge path.
 
-The firmware limits the charge profile by state of charge and temperature.
-Fast charging is observable between roughly 5 % and 70 % state of charge; above
-90 % the firmware selects the standard profile regardless of authentication, and
-a battery temperature outside the fast-charge window has the same effect.
-
-The unit runs at most once per Type-C attach. To try again, unplug and replug the
-adapter; restarting the unit alone reports `role_first=already_attempted_this_attach`
-until the attach token changes.
+Multiply the battery’s `voltage_now` by its `current_now` and divide by 10¹² to obtain net charging power in watts. Read it alongside battery level, temperature and pump current to see how current tapers during the constant-voltage finish.
 
 ## Troubleshooting
 
-| Symptom | Check |
+| Symptom or journal entry | What to check |
 | --- | --- |
-| Unit never runs | the `xiaomi` group is missing: the running kernel predates the interface |
-| `pd_verifed` stays 0 with a Xiaomi adapter | `journalctl -u liuqin-mipps-auth`: `adapter auth mismatch` means the handshake failed; `pdo2 reports no source PDO` means the adapter offered no PD contract |
-| `role_first=skipped_non_xiaomi` | the adapter does not report `adapter_svid 0x2717`, so the data role is left alone. Authentication is still probed; failure keeps the high-voltage gate closed by default |
-| `role_first=source_not_ready` | the adapter did not reach `SNK_Ready` with a PD contract within the timeout: plain 5 V, DCP, or a negotiation that is still running |
-| `role_first=no_host_no_adapter_commands` | the port refused the host role and no adapter command was sent. Replug; if it persists, check `/sys/class/typec/port0/data_role` |
-| `role_first=already_attempted_this_attach` | this attach already ran. Replug instead of restarting the unit |
-| `pd_verifed` is 1 but `fastchg_mode` is 0 | state of charge above 90 %, battery temperature outside the fast-charge window, or the adapter offers no PPS APDO |
-| `unverified_adapter=refused` | the reason follows: cable rated below 5 A, or the contract is not PD_PPS |
+| Service does not start on plug-in | Check the USB supply’s `online` value, the Type-C partner and the `xiaomi/request_vdm_cmd` node. systemd skips the service if this node is absent. |
+| `role_first=waiting` | Check `real_type`, `current_state` and `pdo_pending` on the same line. The service keeps waiting during negotiation and can also wait for PPS after trying fixed PD. |
+| `auth_attempt=…/3 failed` | Read the error for that attempt. For `host role request failed`, check `data_role` and `role_request=end`. For a gauge verification failure, check `authentic` and `slave_authentic`. |
+| `role_first=skipped_non_xiaomi` | The partner did not report Xiaomi’s SVID, so it keeps its data role. Check the subsequent `pd_auth` and `unverified_adapter` entries for the selected path. |
+| `unverified_adapter=refused` | Check for `real_type=PD_PPS` and `current_state=SNK_Ready`, and check whether `pdo2` still reads zero. |
+| `pd_verifed=1` but `fastchg_mode=0` | The high-voltage path is allowed. Check battery level, battery temperature and pump currents to see whether the firmware is using fast charging at this point. |

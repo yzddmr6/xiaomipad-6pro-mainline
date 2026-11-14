@@ -97,7 +97,7 @@ Not yet supported: front camera, gyroscope and magnetometer, ambient light senso
 |---|---|---|---|
 | Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume |
 | Battery / charging | qcom_battmgr / UPower | ✅ Working | Charge level and charging state, wall charging |
-| Fast charging | Xiaomi charger authentication | 🟡 Partial | Fast charging for chargers that pass Xiaomi authentication; other USB PD chargers charge at standard PD levels (9 V / 2 A). See [Fast charging](docs/FASTCHARGE.en.md) |
+| Fast charging | MiPPS / USB PD PPS | ✅ Working | Xiaomi-authenticated chargers and third-party USB PD PPS chargers use the high-voltage fast-charge path by default. Plain PD uses a fixed-voltage profile. Failed authentication is retried automatically. See [Fast charging](docs/FASTCHARGE.en.md) |
 | Computer USB power | USB power path | 🟡 Partial | Limited supply power; the charge level can drop under heavy load |
 | Charging while powered off | Boot-stage charger mode | 🟡 Partial | Shows the battery level and charging trend. At low charge the tablet stays in charger mode. Press Power briefly to boot once the battery reaches 40% and 3.7 V. Hold it for 2 seconds to enter Fastboot |
 | Standby | suspend-to-idle | 🟡 Partial | Stays asleep after suspending and resumes normally on a timer wake; standby power consumption is not optimised yet |
