@@ -5,9 +5,10 @@ Documentation=file:///usr/local/sbin/liuqin-wlan-mac
 # drop-in makes this a required, ordered dependency, so a missing/corrupt
 # private secret fails networking closed rather than silently falling back to
 # a shared test identity.
+# The helper waits for udev to finish with the WLAN netdev itself.  Pulling in
+# systemd-udev-settle instead held sysinit.target, and with it the login
+# screen, for about 12 s on every boot.
 Before=NetworkManager.service network-pre.target
-After=systemd-udev-settle.service
-Wants=systemd-udev-settle.service
 
 [Service]
 Type=oneshot

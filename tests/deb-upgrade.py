@@ -39,6 +39,9 @@ try:
  (root/'etc/default/keyboard').write_text('XKBMODEL="pc105"\nXKBLAYOUT="default,us"\nXKBVARIANT=","\nXKBOPTIONS=""\n')
  guest('dpkg -i /run/deb-test/new.deb\ndpkg --audit\n')
  assert not drop.exists()
+ assert '--allow-unverified-adapter' in (root/'etc/systemd/system/liuqin-mipps-auth.service').read_text()
+ guest('systemctl is-enabled tablet-charge-sample.timer\n')
+ assert (root/'usr/share/tablet-charge/device').read_text() == 'liuqin\n'
  assert not (root/'usr/local/sbin/liuqin-rescue').exists()
  assert not (root/'usr/local/sbin/liuqin-gnome-usb-rescue').exists()
  assert not (root/'usr/local/bin/liuqin-shell').exists()
@@ -60,7 +63,7 @@ try:
  # dpkg's real glib schema trigger must make the shipped default effective.
  guest("GSETTINGS_BACKEND=memory gsettings get org.gnome.shell enabled-extensions | grep -F liuqin-osk-guard@io.github.liuqin\n")
  guest('/usr/bin/gnome-control-center --version\n')
- guest('systemd-analyze verify liuqin-physical-platform.service liuqin-mipps-auth.service liuqin-mipps-battery-auth.service\n')
+ guest('systemd-analyze verify liuqin-physical-platform.service liuqin-mipps-auth.service liuqin-mipps-battery-auth.service tablet-charge-sample.timer tablet-charge-sample.service\n')
  print('PASS: actual ARM64 dpkg upgrade, default MiPPS policy, units, keyboard migration and diverted writers',flush=True)
 finally:
  for path in reversed(mounted):run('umount',str(path))

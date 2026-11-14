@@ -22,14 +22,14 @@ idle-delay=uint32 300
 # from opening or accidentally confirming its own shutdown dialog in parallel.
 power-button-action='nothing'
 
-# These were inert while idle-delay was 0 and are load-bearing now that it is
-# 300: idle does reach the power plugin, and 'nothing' is what keeps it at
-# blanking the screen instead of going on to suspend a board whose resume has
-# never been tested. Raise them to 'suspend' in the same change that proves
-# suspend, not before -- blanking on battery is the win here, and suspending is
-# the risk.
+# On battery, suspend after 15 idle minutes, which is the GNOME default and
+# what the login screen already does. Staying awake with only the screen off
+# draws about 2.3-2.6 W here and empties the battery in one night.
+# On external power the board stays awake: s2idle does not stay asleep here
+# while the charger firmware is active, so suspending would save nothing.
 sleep-inactive-ac-type='nothing'
-sleep-inactive-battery-type='nothing'
+sleep-inactive-battery-type='suspend'
+sleep-inactive-battery-timeout=900
 
 [org/gnome/desktop/screensaver]
 # A short power-key press explicitly locks even on the current development
