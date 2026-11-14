@@ -318,9 +318,11 @@ EOF
 		/usr/libexec/gnome-control-center-set-debian-keyboard
 	{
 		printf '#!/bin/sh\nset -e\nif [ "$1" = configure ]; then\n'
+		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl daemon-reload || :; fi\n'
 		printf '\tif command -v dconf >/dev/null; then dconf update || :; fi\n'
-		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
+		printf '\tdeb-systemd-helper enable tablet-charge-sample.timer >/dev/null\n'
+		printf '\tif [ -d /run/systemd/system ]; then deb-systemd-invoke start tablet-charge-sample.timer >/dev/null; fi\n'
 		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
 		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
@@ -340,12 +342,17 @@ EOF
 #!/bin/sh
 set -e
 case $1 in remove|upgrade|deconfigure)
+    if [ -d /run/systemd/system ]; then
+        deb-systemd-invoke stop tablet-charge-sample.timer tablet-charge-sample.service >/dev/null
+    fi
+    deb-systemd-helper disable tablet-charge-sample.timer >/dev/null
     deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
     ;;
 esac
 EOF
 	cat >>"$root/DEBIAN/postrm" <<'EOF'
 if [ "$1" = purge ]; then
+    deb-systemd-helper purge tablet-charge-sample.timer >/dev/null
     deb-systemd-helper --user purge mainline-release-notifier.timer >/dev/null
 fi
 EOF
