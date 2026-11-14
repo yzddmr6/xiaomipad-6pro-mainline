@@ -96,13 +96,9 @@ pd_verifed=1
 /usr/libexec/tablet-charge-sample --stdout
 ```
 
-⟦DRAFT:G-CONN⟧
-
 ## 连接器过温保护
 
 USB 供电在线时，内核每秒读取充电口热敏电阻，并将温度传给 ADSP 充电固件。过温阈值和保护动作由原厂充电固件决定。
-
-⟦DRAFT:G-CONN⟧
 
 ## 验证
 

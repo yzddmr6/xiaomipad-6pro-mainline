@@ -99,13 +99,9 @@ Records are stored only on the tablet in `/var/lib/tablet-charge/` (mode 0700), 
 /usr/libexec/tablet-charge-sample --stdout
 ```
 
-⟦DRAFT:G-CONN⟧
-
 ## Connector overtemperature protection
 
 While USB power is online, the kernel reads the charging port thermistor once per second and sends the temperature to the ADSP charger firmware. The stock firmware determines the overtemperature threshold and protective action.
-
-⟦DRAFT:G-CONN⟧
 
 ## Verifying
 
