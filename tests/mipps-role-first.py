@@ -16,6 +16,7 @@ import shlex
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 project = Path(__file__).resolve().parents[1]
 daemon = project / 'device/gnome-overlay/usr/local/libexec/liuqin-mipps-auth'
@@ -44,22 +45,21 @@ class Fixture:
         self.port = Path(directory) / 'typec'
         self.port.mkdir()
         (self.port / 'data_role').write_text(DEVICE_ROLE + '\n')
-        self.state = Path(directory) / 'run/role-first-attempt'
+        self.state = Path(directory) / 'run/verified-attach'
         self.state.parent.mkdir(parents=True)
         self.events = []
         self.online = True
         self.attach = ATTACH
         self.disconnect_at = None
-        self.cable_amps = None
         self.clock = 0.0
         self.seed_index = None
         self.vdm_failure = None
         self.role_failure = False
         self.nodes = {
-            'request_vdm_cmd': '0,',
+            'request_vdm_cmd': '0,Null',
             'real_type': 'PD_PPS',
             'current_state': 'SNK_Ready',
-            'adapter_svid': '0x2717',
+            'adapter_svid': '2717',
             'adapter_id': ADAPTER_ID,
             'pdo2': '0002d12c',
             'authentic': '1',
@@ -87,8 +87,7 @@ class Fixture:
         return [event[1] for event in self.events if event[0] == 'vdm']
 
     def install_patches(self):
-        auth.ROLE_FIRST_STATE_FILE = str(self.state)
-        auth.VERIFIED_STATE_FILE = str(self.state.parent / "verified-attach")
+        auth.VERIFIED_STATE_FILE = str(self.state)
         auth.NOTIFICATION_STATE_FILE = str(self.state.parent / 'notification')
         auth.CHARGE_PROFILE_STATE_FILE = str(self.state.parent / 'profile')
         auth.USB_ONLINE_STATE_FILE = str(self.state.parent / 'usb-online')
@@ -101,10 +100,8 @@ class Fixture:
         auth.find_typec_port = lambda: str(self.port)
         auth.usb_is_online = lambda: self.online
         auth.current_attach_token = lambda: self.attach
-        auth.cable_current_capability_amps = lambda: self.cable_amps
         auth.wait_usb_online = lambda _timeout: self.online
         auth.wait_real_type = lambda _root, _timeout: self.nodes['real_type']
-        auth.detect_adapter_id = lambda _root, _timeout: ADAPTER_ID
         auth.notify_completed_charge = lambda *_args, **_kwargs: False
 
         def enable_battery_auth(_root):
@@ -120,10 +117,12 @@ class Fixture:
                 self.online = False
                 self.attach = None
             if self.vdm_failure:
+                if self.vdm_failure == 'once':
+                    self.vdm_failure = None
                 return
             if cmd == 4:
                 self.seed_index = auth.SEEDS.index(payload)
-            response = self.expected_digest()[:32] if cmd == 5 else ''
+            response = self.expected_digest()[:32] if cmd == 5 else ('0' if cmd <= 3 else 'Null')
             original_write_node(root, name, f'{cmd},{response}')
 
         def request_host(_port, _timeout):
@@ -147,9 +146,10 @@ class Fixture:
         command = unit.split('/usr/local/libexec/liuqin-mipps-auth ', 1)[1].split('\n', 1)[0]
         auth.sys.argv = ['liuqin-mipps-auth', *shlex.split(command),
                          '--sysfs', str(self.root), *extra]
-        with contextlib.redirect_stdout(io.StringIO()), \
-                contextlib.redirect_stderr(io.StringIO()):
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
             auth.main()
+        return log.getvalue()
 
     def state_value(self):
         return self.state.read_text().strip() if self.state.exists() else None
@@ -172,8 +172,8 @@ with tempfile.TemporaryDirectory() as directory:
           fixture.vdm_calls() == [1, 2, 3, 4, 5, 7, 6], fixture.vdm_calls())
     check('an accepted authentication asserts the gate',
           (fixture.root / 'pd_verifed').read_text().strip() == '1')
-    check('the attempt is remembered for the attach',
-          fixture.state_value() == ATTACH)
+    check('the verified adapter is bound to this attachment',
+          fixture.state_value() == 'mipps ' + ATTACH)
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
@@ -185,31 +185,38 @@ with tempfile.TemporaryDirectory() as directory:
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
-    fixture.state.write_text(ATTACH + '\n')
-    fixture.run_main()
-    check('the same attach is attempted only once', not fixture.events)
-    check('the remembered attempt keeps its token',
-          fixture.state_value() == ATTACH)
+    fixture.vdm_failure = 'once'
+    log = fixture.run_main()
+    check('a failed handshake retries and authenticates on the same attach',
+          fixture.vdm_calls() == [1, 1, 2, 3, 4, 5, 7, 6] and
+          fixture.state_value() == 'mipps ' + ATTACH and 'waiting for VDM state 1' in log)
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
     fixture.role_failure = True
     fixture.run_main()
     check('a refused role request sends no adapter command',
-          not fixture.vdm_calls() and [e[0] for e in fixture.events] == ['role'],
+          not fixture.vdm_calls() and [e[0] for e in fixture.events] == ['role'] * 3,
           fixture.events)
-    check('a refused role request is remembered for the attach',
-          fixture.state_value() == ATTACH)
+    check('a refused role request leaves the gate closed', not auth.pd_verified(fixture.root))
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
-    fixture.set('current_state', 'SNK_Wait')
+    fixture.set('current_state', 'SNK_Startup')
+    fixture.set('real_type', 'Unknown')
+    def late_contract():
+        if fixture.clock > 40:
+            fixture.set('real_type', 'PD_PPS')
+            fixture.set('current_state', 'SNK_Ready')
+        return fixture.online
+    auth.usb_is_online = late_contract
     fixture.run_main()
-    check('an unsettled source sends no adapter command', not fixture.events)
+    check('PD and SNK_Ready arriving after 40 seconds still authenticate',
+          fixture.clock > 40 and fixture.state_value() == 'mipps ' + ATTACH)
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
-    fixture.set('adapter_svid', '0x1234')
+    fixture.set('adapter_svid', '1234')
     fixture.run_main()
     check('a non-Xiaomi source keeps the negotiated data role',
           fixture.role() == DEVICE_ROLE and not [e for e in fixture.events
@@ -221,8 +228,8 @@ with tempfile.TemporaryDirectory() as directory:
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
     fixture.vdm_failure = 'charger stopped answering'
-    fixture.run_main()
-    check('a silent charger leaves a closed gate',
+    fixture.run_main('--no-allow-unverified-adapter')
+    check('strict policy leaves a silent charger gate closed',
           (fixture.root / 'pd_verifed').read_text().strip() == '0')
 
 with tempfile.TemporaryDirectory() as directory:
@@ -240,15 +247,27 @@ with tempfile.TemporaryDirectory() as directory:
     fixture.run_main()
     check('an offline port sends no adapter command', not fixture.events)
 
-for amps in (None, 3, 5):
-    with tempfile.TemporaryDirectory() as directory:
-        fixture = Fixture(directory)
-        fixture.cable_amps = amps
-        fixture.vdm_failure = 'silent'
-        fixture.set('pd_verifed', '1')
-        fixture.run_main()
-        check(f'default policy rejects silent charger with {amps} A cable',
-              not auth.pd_verified(str(fixture.root)))
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    # PPS APDO, 3.3-11 V, max current 60 * 50 mA. SVID uses kernel %04x.
+    fixture.set('pdo2', 'c0dc213c')
+    fixture.set('adapter_svid', '0000')
+    fixture.vdm_failure = 'silent'
+    cable = fixture.port / 'port0-cable'
+    (cable / 'identity').mkdir(parents=True)
+    (cable / 'identity/product_type_vdo1').write_text('0x00000020\n')
+    glob = auth.glob.glob
+    def cable_glob(pattern):
+        return [str(cable)] if pattern == '/sys/class/typec/port*-cable' else glob(pattern)
+    with patch.object(auth.glob, 'glob', cable_glob):
+        log = fixture.run_main()
+    check('standard PPS accepts a 3 A advertisement after bounded retries',
+          fixture.vdm_calls() == [1, 1, 1] and fixture.role() == DEVICE_ROLE and
+          fixture.state_value() == 'pps ' + ATTACH and 'pd_auth=0' in log and
+          auth.pd_verified(fixture.root))
+    fixture.events.clear()
+    fixture.run_main()
+    check('duplicate event preserves the PPS verdict', not fixture.events)
 
 for cmd in (1, 4, 5, 7, 6):
     with tempfile.TemporaryDirectory() as directory:
@@ -264,27 +283,37 @@ for cmd in (1, 4, 5, 7, 6):
         check(f'detach during command {cmd} stops subsequent writes',
               fixture.vdm_calls()[-1] == cmd, fixture.vdm_calls())
 
-for failure in ('offline', 'not-ready', 'role-refused', 'no-partner', 'already-attempted', 'no-pdo'):
+for failure in ('offline', 'not-ready', 'role-refused', 'no-partner', 'fixed-pd', 'no-pdo'):
     with tempfile.TemporaryDirectory() as directory:
         fixture = Fixture(directory)
         fixture.set('pd_verifed', '1')
-        fixture.set('request_vdm_cmd', '6,')
+        fixture.set('request_vdm_cmd', '6,Null')
         if failure == 'offline': fixture.online = False
-        if failure == 'not-ready': fixture.set('current_state', 'SNK_Wait')
+        if failure in ('not-ready', 'fixed-pd'):
+            fixture.set('real_type', 'PD')
+            fixture.set('current_state', 'SNK_Startup' if failure == 'not-ready' else 'SNK_Ready')
+            fixture.vdm_failure = 'silent'
+            auth.usb_is_online = lambda: fixture.clock < 80
+        if failure == 'no-pdo':
+            fixture.set('pdo2', '00000000')
+            auth.usb_is_online = lambda: fixture.clock < 80
         if failure == 'role-refused': fixture.role_failure = True
         if failure == 'no-partner': fixture.attach = None
-        if failure == 'already-attempted': fixture.state.write_text(ATTACH)
-        if failure == 'no-pdo': fixture.set('pdo2', '00000000')
         try:
             fixture.run_main()
         except auth.UnsupportedChargerError:
             pass
+        if failure in ('no-pdo', 'not-ready'):
+            check(f'{failure} waits until unplug without commands', not fixture.events)
+        if failure == 'fixed-pd':
+            check('fixed PD never asserts the third-party gate', 'pps ' + ATTACH != fixture.state_value()
+                  and fixture.vdm_calls() == [1, 1, 1])
         check(f'{failure} clears stale success', not auth.pd_verified(str(fixture.root)))
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
     fixture.set('pd_verifed', '1')
-    fixture.set('request_vdm_cmd', '6,')
+    fixture.set('request_vdm_cmd', '6,Null')
     fixture.run_main()
     check('stale completed VDM without this attach proof is reauthenticated',
           fixture.vdm_calls() == [1, 2, 3, 4, 5, 7, 6])
@@ -295,19 +324,17 @@ with tempfile.TemporaryDirectory() as directory:
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
-    fixture.set('adapter_svid', '0x1234')
+    fixture.set('adapter_svid', '1234')
     reads = []
     def read_node(root, name):
         reads.append(name)
-        if name == 'current_state': fixture.set('adapter_svid', '0x2717')
+        if name == 'current_state': fixture.set('adapter_svid', '2717')
         return original_read_node(root, name)
     auth.read_node = read_node
     fixture.run_main()
     auth.read_node = original_read_node
     check('SVID and data role are read after the negotiated contract',
           reads.index('current_state') < reads.index('adapter_svid') < reads.index('data_role'))
-
-print('Role-first ordering and fail-closed checks passed; not a protocol test.')
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
@@ -323,3 +350,28 @@ with tempfile.TemporaryDirectory() as directory:
         pass
     check('detach during fuel-gauge work cannot swap the new partner role',
           fixture.role() == DEVICE_ROLE and not fixture.events and not auth.pd_verified(str(fixture.root)))
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('real_type', 'PD')
+    fixture.set('adapter_svid', '0000')
+    fixture.vdm_failure = 'silent'
+    def delayed_pps():
+        if fixture.clock > 90:
+            fixture.set('real_type', 'PD_PPS')
+        return fixture.online
+    auth.usb_is_online = delayed_pps
+    fixture.run_main()
+    check('fixed PD later upgraded to PPS retries without a new attach',
+          fixture.clock > 90 and fixture.state_value() == 'pps ' + ATTACH)
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('adapter_svid', '0000')
+    def fail_gauge(_root):
+        raise RuntimeError('slave_authentic digest verification failed')
+    auth.enable_battery_auth = fail_gauge
+    log = fixture.run_main()
+    check('battery authentication failure blocks standard PPS',
+          not auth.pd_verified(fixture.root) and not fixture.vdm_calls() and
+          'auth_attempt=3/3 failed: slave_authentic' in log)
