@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Defer local GNOME audio until the compositor sends READY. Standalone audio
+# and remote sessions do not have a local graphical compositor to wait for.
+set -eu
+test -e "${XDG_RUNTIME_DIR:?}/liuqin-compositor-ready" && exit 0
+sessions=$(loginctl show-user "$(id -u)" --property=Sessions --value) || exit 0
+for session in $sessions; do
+    info=$(loginctl show-session "$session" --property=Class --property=Type --property=Seat --property=Desktop) || continue
+    case "$info" in *Class=greeter*) exit 1 ;; esac
+    if printf '%s\n' "$info" | grep -qx 'Seat=seat0' &&
+       printf '%s\n' "$info" | grep -qx 'Type=wayland' &&
+       printf '%s\n' "$info" | grep -Eq '^Desktop=(ubuntu|gnome|gnome-initial-setup)(-wayland)?$'; then
+        exit 1
+    fi
+done
+exit 0

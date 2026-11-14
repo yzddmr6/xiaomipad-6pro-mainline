@@ -106,6 +106,9 @@ run_suite() { # <label> <shell>...
 	dev=$case_dir/dev
 	store=$case_dir/store
 	mkdir -p "$dev" "$store"
+mkdir -p "$dev/power_supply/battery"
+printf 'Battery\n' > "$dev/power_supply/battery/type"
+printf '80\n' > "$dev/power_supply/battery/capacity"
 	printf '\n== %s ==\n' "$label"
 
 	sw() { # run the switcher, capture output and status
@@ -402,7 +405,7 @@ if command -v busybox >/dev/null 2>&1; then
 	bb=$(command -v busybox)
 	bbbin=$work/bbbin
 	mkdir -p "$bbbin"
-	for applet in sh cat cp cut date dd env head id kill ls mkdir mv od printf readlink \
+	for applet in dirname mktemp sh cat cp cut date dd env head id kill ls mkdir mv od printf readlink \
 		rm rmdir sed sha256sum sleep stat sync tr grep; do
 		ln -s "$bb" "$bbbin/$applet"
 	done

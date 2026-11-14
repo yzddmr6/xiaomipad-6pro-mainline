@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: MIT
+"""Run fuel-gauge and adapter authentication once per charger attachment."""
+import os
+from pathlib import Path
+import signal
+import socket
+import subprocess
+import sys
+
+def stop_auth(worker):
+    if worker is not None and worker.poll() is None:
+        try:
+            os.killpg(worker.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        try:
+            worker.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(worker.pid, signal.SIGKILL)
+            worker.wait()
+
+
+def authenticate():
+    helper = '/usr/local/libexec/liuqin-mipps-auth'
+    subprocess.run([sys.executable, helper, '--battery-auth-only'], timeout=80, check=True)
+    if any(Path('/sys/class/typec').glob('port*-partner')):
+        os.execl(sys.executable, sys.executable, helper, '--role-first', '--no-data-role-swap', '--timeout', '4')
+
+
+def attachment():
+    try:
+        if Path('/sys/class/power_supply/qcom-battmgr-usb/online').read_text().strip() != '1':
+            return None
+        partner = next(Path('/sys/class/typec').glob('port*-partner'), None)
+        if partner is None:
+            return 'usb-online'
+        stat = partner.stat()
+        return stat.st_dev, stat.st_ino
+    except OSError:
+        return None
+
+
+def watch():
+    with socket.socket(socket.AF_NETLINK, socket.SOCK_DGRAM, 15) as events:
+        events.bind((0, 1))
+        worker = previous = None
+        def stop(_signum, _frame):
+            raise SystemExit(0)
+        signal.signal(signal.SIGTERM, stop)
+        try:
+            while True:
+                attached = attachment()
+                if previous != attached:
+                    stop_auth(worker)
+                    worker = None
+                    if attached is not None:
+                        worker = subprocess.Popen([sys.executable, '-I', '-B', __file__, '--authenticate'],
+                                                  start_new_session=True)
+                    previous = attached
+                events.recv(65536)
+        finally:
+            stop_auth(worker)
+
+
+if __name__ == '__main__':
+    if sys.argv[1:] == ['--authenticate']:
+        authenticate()
+    else:
+        watch()

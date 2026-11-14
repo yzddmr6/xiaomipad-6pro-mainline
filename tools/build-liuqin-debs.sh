@@ -25,7 +25,11 @@ project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 out_dir=${OUT_DIR:-"$project_root/out/liuqin-debs"}
 # The release version of the device packages lives in VERSION and is bumped
 # with every release; LIUQIN_DEB_VERSION overrides it for test builds only.
-version=${LIUQIN_DEB_VERSION:-$(cat "$project_root/VERSION")}
+# The unversioned-revision 0.6.2 was already installed by prerelease images.
+# Record the Debian revision so APT replaces those binaries as well.
+upstream_version=$(cat "$project_root/VERSION")
+case $upstream_version in 0.6.2) package_version=0.6.2-1 ;; *) package_version=$upstream_version ;; esac
+version=${LIUQIN_DEB_VERSION:-$package_version}
 case $version in
 [0-9]*.[0-9]*.[0-9]*) ;;
 *) printf 'build-liuqin-debs: invalid package version: %s\n' "$version" >&2; exit 1 ;;
@@ -221,6 +225,15 @@ PY
 	done <"$work/$pkg.files"
 	[ "$(wc -l <"$work/$pkg.files" | tr -d ' ')" -ge 30 ] ||
 		die 'device-support overlay copy is implausibly small'
+	# Shared user-session release notification; only the project identity differs.
+	while IFS= read -r rel; do
+		install -D -m "$(stat -c '%a' "$project_root/device/release-notifier/$rel")" \
+			"$project_root/device/release-notifier/$rel" "$root/$rel"
+	done <<EOF
+$(cd "$project_root/device/release-notifier" && find usr -type f | LC_ALL=C sort)
+EOF
+	install -d "$root/usr/share/mainline-release"
+	printf '%s\n' "$version" >"$root/usr/share/mainline-release/version"
 	# Adapt the shared storage guard to the native root marker.
 	guard=$root/usr/local/sbin/liuqin-gnome-storage-guard
 	grep -qx 'marker=${LIUQIN_GNOME_GUARD_TEST_MARKER:-/etc/liuqin-gnome-root}' "$guard" ||
@@ -313,6 +326,7 @@ PY
 		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
 		printf '\trm -f /etc/systemd/system/multi-user.target.wants/liuqin-gnome-usb-rescue.service /etc/systemd/system/liuqin-gnome-usb-rescue.service\n'
 		printf '\tsystemctl enable liuqin-physical-platform.service\n'
+		printf '\tdeb-systemd-helper --user enable mainline-release-notifier.timer >/dev/null\n'
 		printf '\t/usr/local/libexec/liuqin-keyboard-layout --migrate\n'
 		printf '\tif [ -f /etc/machine-info ]; then sed -i "/^CHASSIS=/d" /etc/machine-info; fi\n'
 		printf '\tprintf "CHASSIS=tablet\\n" >>/etc/machine-info\n'
@@ -320,7 +334,22 @@ PY
 	} >"$root/DEBIAN/postinst"
 	cp "$work/$pkg.preinst" "$root/DEBIAN/preinst"
 	cp "$work/$pkg.postrm" "$root/DEBIAN/postrm"
-	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0)' \
+	# Disable before removal or upgrade, so a downgrade to a version without
+	# this unit cannot retain a dangling timer. New postinst enables it again.
+	cat >"$root/DEBIAN/prerm" <<'EOF'
+#!/bin/sh
+set -e
+case $1 in remove|upgrade|deconfigure)
+    deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
+    ;;
+esac
+EOF
+	cat >>"$root/DEBIAN/postrm" <<'EOF'
+if [ "$1" = purge ]; then
+    deb-systemd-helper --user purge mainline-release-notifier.timer >/dev/null
+fi
+EOF
+	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0), python3-gi, init-system-helpers'  \
 		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, key-only USB maintenance, power panel'
 }
 
@@ -332,6 +361,8 @@ build_sensors() {
 	root=$work/$pkg/root
 	mkdir -p "$root"
 	tar --extract --file "$sensor_stack" --directory "$root" --no-same-owner
+	install -D -m 0644 "$project_root/device/sensors/extra-patches.json" \
+		"$root/usr/share/doc/liuqin-sensors/extra-patches.json"
 	for required in \
 		usr/bin/hexagonrpcd \
 		usr/bin/ssccli \

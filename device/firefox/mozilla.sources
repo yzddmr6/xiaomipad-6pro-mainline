@@ -1,0 +1,6 @@
+Types: deb
+URIs: https://packages.mozilla.org/apt
+Suites: mozilla
+Components: main
+Architectures: arm64
+Signed-By: /etc/apt/keyrings/packages.mozilla.org.asc

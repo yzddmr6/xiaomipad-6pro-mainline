@@ -83,6 +83,30 @@ stage_copy() {
 	say 'copy PASS'
 }
 
+stage_firefox_input() {
+	browser_dir=$project_root/device/firefox
+	browser_deb=$apt_cache/archives/firefox_160.0~build1_arm64.deb
+	browser_hash=d56aac0662a4ec87b5aab1734d9fbd1c24a566ee5153c12199def1563ab7d9b4
+	browser_url=https://packages.mozilla.org/apt/pool/mozilla/firefox_160.0~build1_arm64_54941e6f566d404ddf8ec8ad6f4469a3.deb
+	mkdir -p "$apt_cache/archives"
+	if ! printf '%s  %s\n' "$browser_hash" "$browser_deb" | sha256sum --status -c - 2>/dev/null; then
+		(
+			tmp=$(mktemp "$apt_cache/archives/firefox.XXXXXXXX")
+			trap 'rm -f "$tmp"' EXIT
+			curl --fail --location --output "$tmp" "$browser_url" || exit 1
+			printf '%s  %s\n' "$browser_hash" "$tmp" | sha256sum --check - || exit 1
+			chmod 0644 "$tmp"
+			mv -f "$tmp" "$browser_deb"
+		) || return 1
+	fi
+	install -Dm644 "$browser_dir/mozilla.sources" "$root/etc/apt/sources.list.d/mozilla.sources"
+	install -Dm644 "$browser_dir/mozilla.pref" "$root/etc/apt/preferences.d/mozilla"
+	install -Dm644 "$browser_dir/packages.mozilla.org.asc" "$root/etc/apt/keyrings/packages.mozilla.org.asc"
+	install -Dm644 "$browser_dir/mimeapps.list" "$root/etc/xdg/mimeapps.list"
+	install -Dm644 "$browser_dir/90_liuqin-firefox.gschema.override" \
+		"$root/usr/share/glib-2.0/schemas/90_liuqin-firefox.gschema.override"
+}
+
 stage_debs() {
 	if [ "${LIUQIN_ROOT_MOUNT_NS:-}" != 1 ]; then
 		LIUQIN_ROOT_MOUNT_NS=1 unshare --mount --propagation private sh "$0" debs
@@ -94,6 +118,7 @@ stage_debs() {
 		ls "$debs_dir"/${name}_*_${arch}.deb >/dev/null 2>&1 || die "missing deb: $name ($arch)"
 	done
 	ls "$debs_dir"/liuqin-device_*_arm64.deb >/dev/null 2>&1 || die 'missing deb: liuqin-device'
+	stage_firefox_input
 	say 'installing the liuqin deb set in a qemu-aarch64 chroot'
 	mkdir -p "$root/tmp/liuqin-debs"
 	cp "$debs_dir"/*.deb "$root/tmp/liuqin-debs/"
@@ -111,6 +136,12 @@ cat >/tmp/liuqin-apt.conf <<'APT'
 APT
 apt-get -c /tmp/liuqin-apt.conf update >/dev/null
 python3 /root/liuqin-root-package-policy.py purge
+apt-get -c /tmp/liuqin-apt.conf install -y --allow-downgrades --no-install-recommends \
+    /var/cache/apt/archives/firefox_160.0~build1_arm64.deb
+test "$(dpkg-query -W -f='${Version}' firefox)" = '160.0~build1'
+test -x /usr/lib/firefox/firefox
+glib-compile-schemas --strict /usr/share/glib-2.0/schemas
+test -f /usr/share/applications/firefox.desktop
 # The camera application and its codec plugins are image content, not
 # dependencies of liuqin-device-support: removing Snapshot or a codec must
 # never take the device units with it.  ugly/libav carry the H.264 encoder
@@ -165,6 +196,9 @@ EOF
 	[ -L "$root/etc/resolv.conf" ] &&
 		[ "$(readlink "$root/etc/resolv.conf")" = ../run/systemd/resolve/stub-resolv.conf ] ||
 		die 'etc/resolv.conf is not the distro resolver symlink after the chroot'
+	install -Dm755 "$browser_dir/firefox-snap-remove" "$root/usr/libexec/firefox-snap-remove"
+	install -Dm644 "$browser_dir/liuqin-firefox-snap-remove.service" "$root/usr/lib/systemd/system/liuqin-firefox-snap-remove.service"
+	systemctl --root="$root" enable liuqin-firefox-snap-remove.service
 	say 'debs PASS'
 }
 

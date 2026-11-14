@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+[Unit]
+Description=Remove the preseeded Firefox snap after installing the Mozilla deb
+Requires=snapd.seeded.service
+After=snapd.seeded.service
+ConditionPathExists=!/var/lib/liuqin/firefox-snap-removed
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/firefox-snap-remove /var/lib/liuqin/firefox-snap-removed
+TimeoutStartSec=5min
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

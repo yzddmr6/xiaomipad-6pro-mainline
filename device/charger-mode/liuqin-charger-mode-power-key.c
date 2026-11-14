@@ -3,8 +3,8 @@
  * Classify one fresh PMIC KEY_POWER press/release sequence for charger mode.
  *
  * Exit 0: ordinary press, request normal boot.
- * Exit 10: medium press, request bootloader.
- * Exit 2: bounded wait elapsed or a press was outside both windows.
+ * Exit 10: hold for two seconds, request bootloader without waiting for release.
+ * Exit 2: bounded wait elapsed or a bounce was ignored.
  */
 #define _GNU_SOURCE
 
@@ -29,7 +29,11 @@
 #define NORMAL_MIN_MS 50
 #define NORMAL_MAX_MS 1999
 #define BOOTLOADER_MIN_MS 2000
-#define BOOTLOADER_MAX_MS 7000
+
+static int held_action(bool pressed, int64_t pressed_at, int64_t now)
+{
+	return pressed && now - pressed_at >= BOOTLOADER_MIN_MS ? 10 : -1;
+}
 
 static int64_t monotonic_ms(void)
 {
@@ -121,7 +125,7 @@ static int classify_event(bool *armed, bool *pressed, int64_t *pressed_at,
 			(long long)held);
 		return 0;
 	}
-	if (held >= BOOTLOADER_MIN_MS && held <= BOOTLOADER_MAX_MS) {
+	if (held >= BOOTLOADER_MIN_MS) {
 		fprintf(stderr, "liuqin-charger-power-key: bootloader %lldms\n",
 			(long long)held);
 		return 10;
@@ -151,12 +155,15 @@ static int run_test_script(const char *path, int64_t arm_after, int64_t timeout)
 		struct input_event event = { 0 };
 		int rc;
 
-		if (offset < last_offset || offset > timeout ||
-		    (strcmp(action, "press") && strcmp(action, "release"))) {
+		if (offset < last_offset || (offset > timeout && !pressed) ||
+		    (strcmp(action, "press") && strcmp(action, "release") && strcmp(action, "wait"))) {
 			fclose(stream);
 			return 64;
 		}
 		last_offset = offset;
+		rc = held_action(pressed, pressed_at, started + offset);
+		if (rc >= 0) { fclose(stream); return rc; }
+		if (!strcmp(action, "wait")) continue;
 		event.type = EV_KEY;
 		event.code = KEY_POWER;
 		event.value = !strcmp(action, "press") ? 1 : 0;
@@ -240,7 +247,9 @@ int main(int argc, char **argv)
 
 		if (now < 0)
 			return 1;
-		if (now - started >= timeout)
+		if (held_action(pressed, pressed_at, now) == 10)
+			return 10;
+		if (now - started >= timeout && !pressed)
 			return 2;
 		if (!test_event && count == 0)
 			count = add_real_events(fds, count);

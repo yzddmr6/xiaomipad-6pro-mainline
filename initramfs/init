@@ -875,6 +875,14 @@ storage_prepare_persistent_root() {
 		return 1
 	fi
 
+	# The read-only identity probe has been unmounted. Only safe preen
+	# repairs are automatic; a failed check re-seals UFS and keeps the log.
+	if ! root-fsck "$storage_target" /run/root-fsck.log; then
+		log "root fsck failed; read-write boot stopped; maintenance log: /run/root-fsck.log"
+		storage_abort
+		return 1
+	fi
+
 	if [ -z "$storage_root_subdir" ]; then
 		if ! "$BB" mount -t ext4 -o rw,noatime "$storage_target" "$storage_newroot"; then
 			log "persistent root failed its read-write ext4 mount"
@@ -1127,9 +1135,9 @@ fi
 # ABL uses androidboot.mode=charger when external power wakes a deeply
 # discharged tablet.  A normal desktop boot in that state consumes more than
 # an SDP input can supply and creates a boot/drain/reboot loop.  Product GNOME
-# images therefore divert here, before USB gadget setup, any read-write mount,
+# images therefore divert here, before normal-system USB setup, any read-write mount,
 # slot metadata update, or stage-2/systemd handoff.  The charger process keeps
-# retrying the read-only/low-power proof and never turns a failed proof into a
+# the UFS read-only proof and never turns a failed proof into a
 # normal boot.
 charger_boot=false
 case " $(cat /proc/cmdline 2>/dev/null) " in
@@ -1144,15 +1152,17 @@ if { [ "$storage_profile" = gnome ] || [ "$storage_profile" = native ]; } && [ "
 		[ "$charger_marker_hash" = 837fa926ba93f4a56e06d7e511f782465cebb250f67d74faee1d16bfc80aede1 ] &&
 		[ -x /bin/liuqin-charger-mode ] &&
 		[ -x /bin/liuqin-charger-mode-power-key ] &&
-		[ -x /bin/liuqin-charger-mode-exit ]; then
+		[ -x /bin/liuqin-charger-mode-exit ] &&
+		[ -x /bin/liuqin-charger-screen ] &&
+		[ -x /bin/liuqin-charger-usb ]; then
 		charger_marker_ok=true
 	fi
 	if [ "$charger_marker_ok" = true ]; then
-		log "charger boot: entering read-only low-power hold before stage 2"
+		log "charger boot: entering read-only charging status before stage 2"
 		exec /bin/liuqin-charger-mode
 		log "critical: charger-mode process returned; refusing normal boot"
 	else
-		log "critical: charger boot lacks its exact low-power state machine; refusing normal boot"
+		log "critical: charger boot lacks its exact charging state machine; refusing normal boot"
 	fi
 	# PID 1 must stay alive even if a damaged helper cannot exec.  Never fall
 	# through to gadget setup, persistent-root preparation, or GNOME.
@@ -1174,11 +1184,9 @@ echo "liuqin first-boot diagnostics" >"$gadget/strings/0x409/product"
 
 mkdir -p "$gadget/configs/c.1/strings/0x409"
 echo "USB network diagnostics" >"$gadget/configs/c.1/strings/0x409/configuration"
-# Configfs MaxPower is expressed in mA.  This gadget is currently limited to
-# USB2 high-speed, whose SDP ceiling is 500 mA.  The old 250 mA declaration was
-# lower than the ~397 mA ADSP actually accepted and made the descriptor lie;
-# 500 fixes that contract but does not override the host/BC1.2/Type-C decision.
-echo 500 >"$gadget/configs/c.1/MaxPower"
+# Match the stock configfs declaration. Composite encodes at most 500 mA
+# at USB 2 speeds and 896 mA at SuperSpeed. The source grants the budget.
+echo 900 >"$gadget/configs/c.1/MaxPower"
 
 function_name=ncm.usb0
 if ! mkdir "$gadget/functions/$function_name" 2>/dev/null; then

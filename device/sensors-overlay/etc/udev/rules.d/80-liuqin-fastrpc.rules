@@ -1,9 +1,9 @@
 # Grant only the dedicated daemon access.  The SSC accelerometer is normally
 # disabled by upstream's generic rule because some devices can block in sensor
 # setup.  liuqin first requires a bounded, real accelerometer sample, so expose
-# only that already-proven driver to SensorProxy on this exact SDSP endpoint.
+# the accelerometer and the upstream light driver to SensorProxy on this exact SDSP endpoint.
 # TAG makes a .device unit available and SYSTEMD_WANTS starts the bounded stack.
-SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp", GROUP="fastrpc", MODE="0660", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel", TAG+="systemd", ENV{SYSTEMD_WANTS}+="liuqin-sensor-stack.target"
+SUBSYSTEM=="misc", KERNEL=="fastrpc-sdsp", GROUP="fastrpc", MODE="0660", ENV{IIO_SENSOR_PROXY_TYPE}+="ssc-accel ssc-light", TAG+="systemd", ENV{SYSTEMD_WANTS}+="liuqin-sensor-stack.target"
 # 2026-09-04 visual four-pose proven: portrait unchanged, landscape flipped 180
 # versus the first candidate.  Raw axes: USB-down +Y, USB-right +X, so negate
 # both for the panel's landscape orientation.

@@ -1,27 +1,27 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 #
-# Stage-1 charger-mode state machine.  This file is intentionally not copied
-# by the current initramfs builder: it is the reviewed input for a later,
-# separately identified M2 boot-image change.
-#
-# It has no mount, root-selection, slot, desktop, or shutdown operation.  Its
-# only terminal actions are the two explicit reboot requests made by the
-# separately pinned exit helper.
+# Stage-1 charging UI and read-only telemetry. Never mount the persistent
+# root or hand off to the desktop. Explicit normal boot requires fresh charge;
+# a held power key always provides the bootloader recovery path.
 
 set -u
 
 cmdline_file=${LIUQIN_CHARGER_CMDLINE_FILE:-/proc/cmdline}
 dev_root=${LIUQIN_CHARGER_DEV_ROOT:-/dev}
-cpu_root=${LIUQIN_CHARGER_CPU_ROOT:-/sys/devices/system/cpu}
 backlight=${LIUQIN_CHARGER_BACKLIGHT:-/sys/class/backlight/ktz8866-backlight}
 bat=${LIUQIN_CHARGER_BAT_ROOT:-/sys/class/power_supply/qcom-battmgr-bat}
 usb=${LIUQIN_CHARGER_USB_ROOT:-/sys/class/power_supply/qcom-battmgr-usb}
+xm=${LIUQIN_CHARGER_XM_ROOT:-/sys/devices/platform/pmic-glink/pmic_glink.power-supply.0/xiaomi}
 blockdev=${LIUQIN_CHARGER_BLOCKDEV:-"/bin/busybox blockdev"}
 key_tool=${LIUQIN_CHARGER_KEY_TOOL:-/bin/liuqin-charger-mode-power-key}
 exit_tool=${LIUQIN_CHARGER_EXIT_TOOL:-/bin/liuqin-charger-mode-exit}
 log_file=${LIUQIN_CHARGER_LOG_FILE:-/dev/kmsg}
 pmsg_file=${LIUQIN_CHARGER_PMSG_FILE:-/dev/pmsg0}
+screen_tool=${LIUQIN_CHARGER_SCREEN_TOOL:-/bin/liuqin-charger-screen}
+usb_tool=${LIUQIN_CHARGER_USB_TOOL:-/bin/liuqin-charger-usb}
+status_dir=${LIUQIN_CHARGER_STATUS_DIR:-/run/liuqin-charge}
+uptime_file=${LIUQIN_CHARGER_UPTIME_FILE:-/proc/uptime}
 sleep_cmd=${LIUQIN_CHARGER_SLEEP_CMD:-sleep}
 interval=${LIUQIN_CHARGER_INTERVAL:-30}
 max_ticks=${LIUQIN_CHARGER_MAX_TICKS:-0}
@@ -41,7 +41,7 @@ charger_log() {
 	charger_log_line="liuqin-charger-mode: $*"
 	printf '%s\n' "$charger_log_line" >>"$log_file" 2>/dev/null || :
 	# PSTORE_PMSG is RAM-backed on liuqin.  It preserves the last charger
-	# evidence across a hard key reset without opening UFS or enabling USB.
+	# evidence across a hard key reset without writing persistent storage.
 	[ ! -w "$pmsg_file" ] ||
 		printf '%s\n' "$charger_log_line" >>"$pmsg_file" 2>/dev/null || :
 }
@@ -53,7 +53,8 @@ charger_value() {
 	}
 	IFS= read -r charger_read_value <"$1" || charger_read_value=NA
 	case $charger_read_value in
-		*' '*|*'	'*|*''*)
+		*' '*|*'	'*|*'
+'*)
 			printf '%s\n' NA ;;
 		*) printf '%s\n' "$charger_read_value" ;;
 	esac
@@ -112,59 +113,76 @@ charger_lock_ufs() {
 	[ "$charger_ok" = true ]
 }
 
-# KTZ8866's documented stage-1 low-power sequence is bl_power=4 plus zero
-# brightness.  Both write/readback pairs are mandatory: accepting one side
-# would make a partially lit panel look like a safe charging state.
-charger_panel_off() {
-	[ -w "$backlight/bl_power" ] && [ -w "$backlight/brightness" ] || return 1
-	printf '%s\n' 4 >"$backlight/bl_power" || return 1
-	printf '%s\n' 0 >"$backlight/brightness" || return 1
-	[ "$(charger_value "$backlight/bl_power")" = 4 ] || return 1
-	[ "$(charger_value "$backlight/brightness")" = 0 ] || return 1
+# Keep a dim, readable status screen. Do not offline CPUs or pin cpufreq to
+# its minimum: that policy made the maintenance path unresponsive and did not
+# improve net charge in the recorded 11-10 low-power experiment.
+charger_panel_on() {
+    charger_max=$(charger_value "$backlight/max_brightness")
+    case $charger_max in *[!0-9]*|'') return 1 ;; esac
+    [ "$charger_max" -gt 0 ] || return 1
+    charger_level=$((charger_max / 20))
+    [ "$charger_level" -gt 0 ] || charger_level=1
+    printf '%s\n' "$charger_level" >"$backlight/brightness" || return 1
+    printf '%s\n' 0 >"$backlight/bl_power" || return 1
+    [ "$(charger_value "$backlight/bl_power")" = 0 ] &&
+        [ "$(charger_value "$backlight/brightness")" = "$charger_level" ]
 }
 
-# This is the early-boot subset of liuqin-lowpower-apply.sh.  No service is
-# stopped here because the integration point is before a persistent root or a
-# desktop can start.  Refuse to call the policy complete if no cpufreq policy
-# can be proved capped at its advertised minimum.
-charger_apply_lowpower() {
-	charger_policy_seen=false
-	charger_policy_ok=true
-	for charger_policy in "$cpu_root"/cpufreq/policy*; do
-		[ -r "$charger_policy/cpuinfo_min_freq" ] || continue
-		charger_policy_seen=true
-		charger_min=$(charger_value "$charger_policy/cpuinfo_min_freq")
-		case $charger_min in *[!0-9]*|'') charger_policy_ok=false; continue ;; esac
-		[ -w "$charger_policy/scaling_max_freq" ] || {
-			charger_policy_ok=false
-			continue
-		}
-		printf '%s\n' "$charger_min" >"$charger_policy/scaling_max_freq" ||
-			charger_policy_ok=false
-		[ "$(charger_value "$charger_policy/scaling_max_freq")" = "$charger_min" ] ||
-			charger_policy_ok=false
-	done
-	[ "$charger_policy_seen" = true ] || return 1
-	for charger_cpu in 7 6 5 4 3 2 1; do
-		charger_online=$cpu_root/cpu$charger_cpu/online
-		[ -e "$charger_online" ] || continue
-		[ -w "$charger_online" ] || {
-			charger_policy_ok=false
-			continue
-		}
-		printf '%s\n' 0 >"$charger_online" || charger_policy_ok=false
-		[ "$(charger_value "$charger_online")" = 0 ] || charger_policy_ok=false
-	done
-	[ "$charger_policy_ok" = true ]
+charger_sample() {
+    capacity=$(charger_value "$bat/capacity")
+    voltage=$(charger_value "$bat/voltage_now")
+    counter=$(charger_value "$bat/charge_counter")
+    current=$(charger_value "$bat/current_now")
+    online=$(charger_value "$usb/online")
+    can_boot=no
+    case $capacity:$voltage in *[!0-9:]*|:*|*:) ;; *)
+        if [ "$capacity" -ge 40 ] && [ "$capacity" -le 100 ] &&
+           [ "$voltage" -ge 3700000 ]; then can_boot=yes; fi ;;
+    esac
+    IFS=' .' read -r now_s _ <"$uptime_file" || now_s=0
+    case $now_s in *[!0-9]*|'') now_s=0 ;; esac
+    case $counter in *[!0-9]*|'')
+        trend=unknown; previous_counter=; previous_time= ;;
+    *)
+        if [ -z "$previous_counter" ]; then
+            previous_counter=$counter; previous_time=$now_s; trend=measuring
+        elif [ "$((now_s - previous_time))" -ge 60 ]; then
+            if [ "$online" = 1 ] && [ "$counter" -gt "$previous_counter" ]; then trend=gaining
+            else trend=not-gaining; fi
+            previous_counter=$counter; previous_time=$now_s
+        fi ;;
+    esac
+    case $online in 0) trend=not-gaining ;; 1) : ;; *) trend=unknown ;; esac
+    if [ "$capacity" = 100 ] && [ "$(charger_value "$bat/status")" = Full ]; then trend=full; fi
+}
+
+charger_publish() {
+    mkdir -p "$status_dir" || return 1
+    # Validated numbers or null, never strings copied verbatim into JSON.
+    for field in capacity voltage counter current; do
+        eval "value=\${$field}"
+        case $value in -*) digits=${value#-} ;; *) digits=$value ;; esac
+        case $digits in *[!0-9]*|'') value=null ;; esac
+        eval "json_$field=\$value"
+    done
+    printf '{"capacity":%s,"voltage_uv":%s,"charge_counter":%s,"current_ua":%s,"trend":"%s","can_boot":"%s","ufs":"%s","usb":"%s"}\n' \
+        "$json_capacity" "$json_voltage" "$json_counter" "$json_current" \
+        "$trend" "$can_boot" "$charger_ufs" "$charger_usb" >"$status_dir/status.json.new" || return 1
+    mv "$status_dir/status.json.new" "$status_dir/status.json"
+    printf '%s %s %s %s\n' "$json_capacity" "$trend" "$can_boot" "$charger_usb" >"$status_dir/screen.txt.new" || return 1
+    mv "$status_dir/screen.txt.new" "$status_dir/screen.txt"
 }
 
 charger_status() {
-	printf 'capacity=%s status=%s voltage_now=%s usb_online=%s usb_type=%s' \
-		"$(charger_value "$bat/capacity")" \
-		"$(charger_value "$bat/status")" \
-		"$(charger_value "$bat/voltage_now")" \
-		"$(charger_value "$usb/online")" \
-		"$(charger_value "$usb/usb_type")"
+    printf 'capacity=%s status=%s voltage_now=%s usb_online=%s real_type=%s' \
+        "$capacity" "$(charger_value "$bat/status")" "$voltage" "$online" "$(charger_value "$xm/real_type")"
+    printf ' usb_uv=%s usb_ua=%s icl_ua=%s source_max_ua=%s bat_temp_decic=%s' \
+        "$(charger_value "$usb/voltage_now")" "$(charger_value "$usb/current_now")" \
+        "$(charger_value "$usb/input_current_limit")" "$(charger_value "$usb/current_max")" "$(charger_value "$bat/temp")"
+    printf ' fastchg=%s verified=%s pump_mv=%s pump1_ma=%s pump2_ma=%s' \
+        "$(charger_value "$xm/fastchg_mode")" "$(charger_value "$xm/pd_verifed")" \
+        "$(charger_value "$xm/bq2597x_bus_voltage")" "$(charger_value "$xm/bq2597x_bus_current")" \
+        "$(charger_value "$xm/bq2597x_slave_bus_current")"
 }
 
 charger_wait_key() {
@@ -172,18 +190,23 @@ charger_wait_key() {
 		"$sleep_cmd" "$interval" 2>/dev/null || :
 		return 2
 	fi
-	charger_arm_after=0
-	if [ "$charger_first_key_window" = true ]; then
-		charger_arm_after=3000
-		charger_first_key_window=false
-	fi
-	"$key_tool" --arm-after-ms "$charger_arm_after" \
+	# A newly opened evdev fd has no historical press events. A release
+	# without a matching fresh press is ignored by the helper; no blind
+	# startup delay is needed before accepting the visible UI's instruction.
+	"$key_tool" --arm-after-ms 0 \
 		--timeout-ms "$((interval * 1000))"
 	return $?
 }
 
 charger_request_exit() {
 	charger_exit=$1
+    if [ "$charger_exit" = normal ]; then
+        charger_sample
+        if [ "$can_boot" != yes ] || [ "$charger_ufs" != ro ]; then
+            charger_log "exit=normal refused=battery-or-storage capacity=$capacity voltage=$voltage"
+            return 1
+        fi
+    fi
 	[ -x "$exit_tool" ] || {
 		charger_log "state=hold exit=$charger_exit refused=no-exit-helper"
 		return 1
@@ -198,32 +221,47 @@ charger_request_exit() {
 charger_cmdline_is_charger || exit 64
 
 charger_ticks=0
-charger_first_key_window=true
+previous_counter=
+previous_time=
+trend=measuring
+charger_usb=unavailable
+screen_pid=
+auth_pid=
+if [ -x /bin/liuqin-charger-auth ] && [ "$test_allow_regular" != 1 ]; then
+    /usr/bin/python3 -I -B /bin/liuqin-charger-auth >/dev/kmsg 2>&1 &
+    auth_pid=$!
+fi
+trap 'for child in $screen_pid $auth_pid; do kill "$child" 2>/dev/null || :; done' EXIT
+trap 'exit 130' HUP INT TERM
 while :; do
-	charger_ufs=failed
-	charger_panel=failed
-	charger_lowpower=failed
-	charger_lock_ufs && charger_ufs=ro
-	if [ "$charger_ufs" = ro ]; then
-		charger_panel_off && charger_panel=off
-		charger_apply_lowpower && charger_lowpower=applied
-	fi
-	if [ "$charger_ufs:$charger_panel:$charger_lowpower" = ro:off:applied ]; then
-		charger_state=hold
-	else
-		charger_state=retry
-	fi
-	charger_log "state=$charger_state ufs=$charger_ufs panel=$charger_panel lowpower=$charger_lowpower $(charger_status)"
-
-	charger_wait_key
-	charger_key_rc=$?
-	case $charger_key_rc in
-		0) charger_request_exit normal || : ;;
-		10) charger_request_exit bootloader || : ;;
-		2) : ;;
-		*) charger_log "state=$charger_state key-helper=$charger_key_rc" ;;
-	esac
-
-	charger_ticks=$((charger_ticks + 1))
-	[ "$max_ticks" = 0 ] || [ "$charger_ticks" -lt "$max_ticks" ] || exit 0
+    charger_ufs=failed
+    charger_panel=failed
+    charger_lock_ufs && charger_ufs=ro
+    charger_sample
+    [ "$charger_ufs" = ro ] || can_boot=no
+    if [ "$charger_ufs" = ro ]; then
+        if [ "$charger_usb" != ready ] && [ -x "$usb_tool" ]; then
+            "$usb_tool" && charger_usb=ready
+        fi
+        charger_panel_on && charger_panel=on
+    fi
+    charger_publish || charger_log 'status publication failed'
+    # DRM providers may bind after stage 1. Keep one display client alive;
+    # only reopen it when no client survived the previous provider attempt.
+    if [ "$charger_ufs" = ro ] && [ -x "$screen_tool" ] &&
+       { [ -z "$screen_pid" ] || ! kill -0 "$screen_pid" 2>/dev/null; }; then
+        "$screen_tool" "$status_dir" >>"$log_file" 2>&1 &
+        screen_pid=$!
+    fi
+    charger_log "state=charging uptime=$now_s ufs=$charger_ufs panel=$charger_panel usb=$charger_usb trend=$trend charge_counter=$counter current_now=$current can_boot=$can_boot $(charger_status)"
+    charger_wait_key
+    charger_key_rc=$?
+    case $charger_key_rc in
+        0) charger_request_exit normal || : ;;
+        10) charger_request_exit bootloader || : ;;
+        2) : ;;
+        *) charger_log "key-helper=$charger_key_rc" ;;
+    esac
+    charger_ticks=$((charger_ticks + 1))
+    [ "$max_ticks" = 0 ] || [ "$charger_ticks" -lt "$max_ticks" ] || exit 0
 done

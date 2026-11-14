@@ -41,6 +41,7 @@ with tempfile.TemporaryDirectory() as directory:
     run('/usr/libexec/liuqin/devmode-gadget','start')
     gadget=root/'sys/kernel/config/usb_gadget/liuqin-devmode'
     assert (gadget/'UDC').read_text().strip()=='controller'
+    assert (gadget/'configs/c.1/MaxPower').read_text().strip()=='900'
     assert (gadget/'idProduct').read_text().strip()=='0x1041'
     assert (gadget/'functions/ncm.usb0/dev_addr').read_text().strip()=='02:00:00:66:00:02'
     run('/usr/libexec/liuqin/devmode-gadget','start')

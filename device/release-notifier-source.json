@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/yzddmr6/xiaomipad-8pro-mainline",
+  "commit": "d91782217b66d0739caddb5024e973a6e311e376",
+  "path": "packaging/release-notifier",
+  "license": "MIT",
+  "adaptation": "project.json identity; imported tests use the device source path",
+  "files": {
+    "packaging/release-notifier/usr/libexec/mainline-release-notifier": "958c0c570731ed97aa4299e7be9c194f481e961c707bbc8cb2d6fa064ade0bc2",
+    "packaging/release-notifier/usr/share/mainline-release-notifier/project.json": "4a8f719dee879761797743f46ff9f2e62372daf7f8afad35c55d14d4748fcf04",
+    "packaging/release-notifier/usr/share/applications/mainline-release-notifier.desktop": "e0fcea07f9e7af1bd4c582f2c787c9383d12bb716171014061124a72b41908ee",
+    "packaging/release-notifier/usr/lib/systemd/user/mainline-release-notifier.timer": "84a47806ba2efed3a2cf68dab87f704672e7db4d4100bb604dbf5ded336fd865",
+    "packaging/release-notifier/usr/lib/systemd/user/mainline-release-notifier@.service": "f2eb9881290b6bf1bf1fc99ffdfea61a51ad263b68f5c9225158c1c443b041cb"
+  }
+}

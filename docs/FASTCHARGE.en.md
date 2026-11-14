@@ -12,6 +12,8 @@ how standard USB-PD PPS adapters are handled.
 | Standard PPS | any PPS adapter, authentication not passed | 9 V, about 12 W by default; high-voltage path with the switch described below |
 | Plain PD, DCP, SDP | no PPS contract | firmware default |
 
+The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. Computer USB ports supply only the power available from the port and cable. Battery charge can fall when system demand exceeds that input.
+
 ## Validation status
 
 The kernel interface and fuel-gauge authentication are verified on the device:
