@@ -10,6 +10,7 @@ import re
 import time
 
 SYS = Path('/sys')
+RUN = Path('/run')
 STATE = Path('/var/lib/tablet-charge')
 CELLS = {'piano': ('bq27z561-0', 'bq27z561-1'),
          'erhai': ('qcom-battmgr-bat',), 'liuqin': ('qcom-battmgr-bat',)}
@@ -21,6 +22,42 @@ def read(path, convert=str):
         return convert(path.read_text().strip())
     except (OSError, ValueError):
         return None
+
+
+def attach_token(sys):
+    """The current Type-C partner, as liuqin-mipps-auth's current_attach_token() names it."""
+    for path in sorted((sys / 'class/typec').glob('port*-partner')):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        return f'{path.name}:{st.st_dev}:{st.st_ino}:{st.st_ctime_ns}'
+    return None
+
+
+def liuqin_charger(sys, run=RUN):
+    """The 6 Pro firmware's charging path state and the authenticator's verdict.
+
+    The ADSP firmware chooses and regulates the path; Linux only authenticates.
+    The authenticator records "mipps" or "pps" for the partner it opened the
+    high-voltage gate for; a verdict for another partner is not this charge.
+    """
+    xm = next((sys / 'devices/platform/pmic-glink').glob('*/xiaomi'), sys / 'class/qcom-battery')
+    state = {key: read(xm / key) for key in
+             ('fastchg_mode', 'pd_verifed', 'authentic', 'slave_authentic',
+              'current_state', 'real_type', 'apdo_max', 'power_max',
+              'bq2597x_bus_voltage', 'bq2597x_bus_current', 'bq2597x_slave_bus_current',
+              'thermal_level_requested')}
+    # XM_CONNECTOR_TEMP is signed deci-C, printed with %u by sm8475_raw.
+    temp = read(xm.parent / 'sm8475_raw/raw_xm_connector_temp', int)
+    if temp is not None and temp >= 1 << 31:
+        temp -= 1 << 32
+    state['connector_temp_decic'] = temp
+    verdict = (read(run / 'liuqin-mipps-auth/verified-attach') or '').split()
+    token = attach_token(sys)
+    state['auth'] = (verdict[0] if len(verdict) == 2 and verdict[0] in ('mipps', 'pps')
+                     and token is not None and verdict[1] == token else None)
+    return state
 
 
 def sample(sys, device, phase):
@@ -56,11 +93,7 @@ def sample(sys, device, phase):
         row['pump'] = {key: read(supplies / 'sc8541' / key, int)
                        for key in ('online', 'current_now', 'voltage_now', 'temp')}
     elif device == 'liuqin':
-        for xm in (sys / 'devices/platform/pmic-glink').glob('*/xiaomi'):
-            row['pump'] = {key: read(xm / key) for key in
-                           ('fastchg_mode', 'pd_verifed', 'current_state', 'real_type',
-                            'bq2597x_bus_voltage', 'bq2597x_bus_current', 'bq2597x_slave_bus_current',
-                            'thermal_level_requested')}
+        row['pump'] = liuqin_charger(sys)
     partner_paths = list((sys / 'class/typec').glob('port[0-9]*-partner'))
     if len(partner_paths) == 1:
         try:

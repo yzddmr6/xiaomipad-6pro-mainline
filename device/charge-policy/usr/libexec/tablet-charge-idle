@@ -7,7 +7,8 @@ import sys
 from gi.repository import Gio, GLib
 import pyudev
 
-WAKE_SOURCES = {'piano': 'xiaomi-mca-charge', 'erhai': 'qcom-battmgr-charge'}
+WAKE_SOURCES = {'piano': 'xiaomi-mca-charge', 'erhai': 'qcom-battmgr-charge',
+                'liuqin': 'qcom-battmgr-charge'}
 WAKEUP = Path('/sys/class/wakeup')
 SESSION = 'org.gnome.SessionManager'
 SESSION_PATH = '/org/gnome/SessionManager'

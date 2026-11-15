@@ -25,9 +25,12 @@ power-button-action='nothing'
 # On battery, suspend after 15 idle minutes, which is the GNOME default and
 # what the login screen already does. Staying awake with only the screen off
 # draws about 2.3-2.6 W here and empties the battery in one night.
-# On external power the board stays awake: s2idle does not stay asleep here
-# while the charger firmware is active, so suspending would save nothing.
-sleep-inactive-ac-type='nothing'
+# On external power the shared charge policy (95_tablet-charge.gschema.override)
+# suspends after the same 15 minutes. While the kernel holds its wired-charger
+# wakeup source, tablet-charge-idle keeps the session awake so fast charging
+# continues; a computer port (SDP/CDP) is not such a source, so the tablet
+# sleeps there and keeps charging. Do not set the AC action here: this
+# database would shadow the shared default.
 sleep-inactive-battery-type='suspend'
 sleep-inactive-battery-timeout=900
 

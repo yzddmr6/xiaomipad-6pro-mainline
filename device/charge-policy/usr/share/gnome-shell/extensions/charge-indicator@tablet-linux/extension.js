@@ -40,12 +40,14 @@ export default class ChargeIndicator extends Extension {
         this._label = new St.Label({y_align: Clutter.ActorAlign.CENTER});
         this._button.add_child(this._label);
         this._rows = {};
+        this._items = {};
         const row = (key, title) => {
             const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
             item.add_child(new St.Label({text: title, x_expand: true}));
             this._rows[key] = new St.Label({text: dash});
             item.add_child(this._rows[key]);
             this._button.menu.addMenuItem(item);
+            this._items[key] = item;
             return item;
         };
         row('input', tr('Charger input', '充电器输入'));
@@ -202,6 +204,9 @@ export default class ChargeIndicator extends Extension {
         rows.request.text = available(format(s.request_v, 'V', 2, 0), format(s.request_a, 'A', 2, 0));
         rows.exits.text = s.online && Number.isFinite(count) ? String(count) : dash;
         rows.reason.text = s.online && reason && reason !== 'none' ? exitReason(reason, chinese) : dash;
+        // A board shows only what its charger exports.
+        this._items.request.visible = Object.hasOwn(s, 'request_v');
+        this._items.exits.visible = this._items.reason.visible = Object.hasOwn(s, 'exits');
         this._awakeRow.visible = Object.hasOwn(s, 'awake');
         rows.awake.text = s.awake == null ? dash : s.awake ? tr('Yes', '是') : tr('No', '否');
         this._button.show();
@@ -214,6 +219,6 @@ export default class ChargeIndicator extends Extension {
         Gio.DBus.session.signal_unsubscribe(this._displaySignal);
         Gio.DBus.system.signal_unsubscribe(this._powerSignal);
         this._button.destroy();
-        this._button = this._label = this._awakeRow = this._rows = this._settings = null;
+        this._button = this._label = this._awakeRow = this._rows = this._items = this._settings = null;
     }
 }
