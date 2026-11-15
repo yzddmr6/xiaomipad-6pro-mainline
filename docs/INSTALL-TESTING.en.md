@@ -135,7 +135,6 @@ it active.
   logical sectors and `userdata` as the last partition. Modified partition
   layouts are rejected.
 - Unlocked bootloader and the device in Fastboot mode.
-- Battery at least 30 percent charged.
 - Linux host with Python 3.11 or newer, Android platform-tools and USB networking.
 - Personal files backed up outside the tablet. Installation erases all userdata.
 - A matching original Xiaomi Fastboot ROM and an Android recovery plan prepared

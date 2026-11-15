@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: MIT
 #
 # Stage-1 charging UI and read-only telemetry. Never mount the persistent
-# root or hand off to the desktop. Explicit normal boot requires fresh charge;
-# a held power key always provides the bootloader recovery path.
+# root or hand off to the desktop. A short power-key press boots normally at
+# any charge; a held power key always provides the bootloader recovery path.
 
 set -u
 
@@ -134,11 +134,8 @@ charger_sample() {
     counter=$(charger_value "$bat/charge_counter")
     current=$(charger_value "$bat/current_now")
     online=$(charger_value "$usb/online")
-    can_boot=no
-    case $capacity:$voltage in *[!0-9:]*|:*|*:) ;; *)
-        if [ "$capacity" -ge 40 ] && [ "$capacity" -le 100 ] &&
-           [ "$voltage" -ge 3700000 ]; then can_boot=yes; fi ;;
-    esac
+    # Booting never waits for the charge level; only the storage lock gates it.
+    can_boot=yes
     IFS=' .' read -r now_s _ <"$uptime_file" || now_s=0
     case $now_s in *[!0-9]*|'') now_s=0 ;; esac
     case $counter in *[!0-9]*|'')
@@ -200,12 +197,9 @@ charger_wait_key() {
 
 charger_request_exit() {
 	charger_exit=$1
-    if [ "$charger_exit" = normal ]; then
-        charger_sample
-        if [ "$can_boot" != yes ] || [ "$charger_ufs" != ro ]; then
-            charger_log "exit=normal refused=battery-or-storage capacity=$capacity voltage=$voltage"
-            return 1
-        fi
+    if [ "$charger_exit" = normal ] && [ "$charger_ufs" != ro ]; then
+        charger_log "exit=normal refused=storage"
+        return 1
     fi
 	[ -x "$exit_tool" ] || {
 		charger_log "state=hold exit=$charger_exit refused=no-exit-helper"

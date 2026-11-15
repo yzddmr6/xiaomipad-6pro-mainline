@@ -71,8 +71,7 @@ static void draw(const char *capacity_text, const char *trend,
     else if (!strcmp(trend,"unknown")) status="CHARGE DATA UNAVAILABLE";
     text(y,status,scale,100,210,140); y+=line*2;
     text(y,!strcmp(can_boot,"yes") ? "PRESS POWER TO START" :
-         (known && capacity<40 ? "START REQUIRES 40% BATTERY" :
-          "WAIT FOR SAFE BATTERY READING"),scale,210,210,210); y+=line*2;
+         "START BLOCKED: STORAGE NOT READ-ONLY",scale,210,210,210); y+=line*2;
     text(y,"HOLD POWER 2s FOR FASTBOOT",scale,180,180,180); y+=line*2;
     text(y,!strcmp(usb,"ready") ? "USB STATUS AVAILABLE" :
          "USB STATUS NOT CONNECTED",scale,130,130,130);
