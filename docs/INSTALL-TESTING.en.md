@@ -426,7 +426,8 @@ sudo liuqin-devmode off
 
 Check it with `liuqin-devmode status`; the keys are in `/etc/liuqin/devmode/authorized_keys` on the
 tablet. While enabled, the tablet uses `192.168.66.2` on the USB network and the host receives
-`192.168.66.10` by DHCP. Connect from the project directory on the host:
+`192.168.66.10` by DHCP, and it does not suspend automatically, so idle suspend cannot drop the SSH
+connection. Connect from the project directory on the host:
 
 ```sh
 python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root

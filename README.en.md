@@ -110,7 +110,7 @@ Checks GitHub anonymously once a day for the latest release and notifies you whe
 
 Ubuntu packages are managed through APT. The project kernel and device components are updated together with the installation bundle: upgrade with a reinstall that keeps `/home`, see [Upgrading an installed system](docs/INSTALL-TESTING.en.md#upgrading-an-installed-system). Do not mix boot images and system components from different releases.
 
-**Developer mode.** `sudo liuqin-devmode on` enables root SSH login over the USB cable; it is off by default and accepts keys only. Installing with `--enable-rescue` provisions the host's public key. Connect from the host with `python3 tools/liuqin-devmode-ssh.py root`, and run `sudo liuqin-devmode off` when done.
+**Developer mode.** `sudo liuqin-devmode on` enables root SSH login over the USB cable; it is off by default and accepts keys only. Installing with `--enable-rescue` provisions the host's public key. While it is on, the tablet does not suspend automatically. Connect from the host with `python3 tools/liuqin-devmode-ssh.py root`, and run `sudo liuqin-devmode off` when done.
 
 To run Android applications inside Ubuntu, Waydroid is supported; the required kernel configuration is built in. See [Waydroid support](docs/WAYDROID.en.md).
 

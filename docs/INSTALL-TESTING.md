@@ -337,7 +337,8 @@ sudo liuqin-devmode off
 ```
 
 用 `liuqin-devmode status` 查看状态；公钥位于平板的 `/etc/liuqin/devmode/authorized_keys`。开启后平板在
-USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。在主机的项目目录中连接：
+USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。开启期间平板不会自动挂起，SSH
+连接不会因空闲挂起中断。在主机的项目目录中连接：
 
 ```sh
 python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
