@@ -44,12 +44,14 @@ def liuqin_auth(sys, run=RUN):
     """The authenticator's verdict, "mipps" or "pps", for the current partner.
 
     The ADSP firmware chooses and regulates the path; Linux only authenticates.
-    A verdict recorded for another partner is not this charge.
+    A verdict recorded for another partner is not this charge. The partner is
+    the same kernfs node while name, device and inode agree; its ctime is
+    only that of the cached inode and is not compared.
     """
     verdict = (read(run / 'liuqin-mipps-auth/verified-attach') or '').split()
     token = attach_token(sys)
-    return (verdict[0] if len(verdict) == 2 and verdict[0] in ('mipps', 'pps')
-            and token is not None and verdict[1] == token else None)
+    return (verdict[0] if len(verdict) == 2 and verdict[0] in ('mipps', 'pps') and token is not None
+            and verdict[1].split(':')[:3] == token.split(':')[:3] else None)
 
 
 def liuqin_charger(sys, run=RUN):

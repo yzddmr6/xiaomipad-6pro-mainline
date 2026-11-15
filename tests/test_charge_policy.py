@@ -83,6 +83,12 @@ class LiuqinCharge(unittest.TestCase):
         # A verdict recorded for the previous partner is not this charge.
         self.verdict('mipps', token='port0-partner:1:2:3')
         self.assertEqual(self.snapshot()['path'], 'PPS')
+        # The same partner node with a re-read inode time is still this charge.
+        st = self.partner.stat()
+        self.verdict('mipps', token=f'port0-partner:{st.st_dev}:{st.st_ino}:1')
+        self.assertEqual(self.snapshot()['path'], 'MiPPS')
+        self.verdict('mipps', token=f'port0-partner:{st.st_dev}:{st.st_ino + 1}:{st.st_ctime_ns}')
+        self.assertEqual(self.snapshot()['path'], 'PPS')
         (self.run_dir / 'liuqin-mipps-auth/verified-attach').write_text('none\n')
         self.assertEqual(self.snapshot()['path'], 'PPS')
         # Before the gate opens the firmware charges at the fixed PD level.
