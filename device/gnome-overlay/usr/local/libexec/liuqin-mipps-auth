@@ -821,7 +821,11 @@ def authenticate_attach(root, args):
                 if attempt == attempts:
                     # Without the host role there is no Xiaomi handshake; the
                     # adapter's standard PPS is the fastest path left.
-                    ensure_fuel_gauges(root)
+                    try:
+                        ensure_fuel_gauges(root)
+                    except (OSError, RuntimeError) as gauge_error:
+                        print(f"standard_pps=refused: {gauge_error}", file=sys.stderr)
+                        break
                     if apply_verdict(root, args, pd_auth=False):
                         return True
                     break

@@ -236,6 +236,25 @@ with tempfile.TemporaryDirectory() as directory:
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
+    fixture.role_failure = True
+    gauges = []
+    def gauges_fail_late(_root):
+        gauges.append('verify')
+        raise RuntimeError('slave_authentic digest verification failed')
+    def role_then_lose_gauges(_port, _timeout):
+        fixture.events.append(('role', fixture.role()))
+        if len(fixture.vdm_calls()) == 0 and [e[0] for e in fixture.events].count('role') == 3:
+            # The gauges read as unverified only when the fallback looks again.
+            fixture.set('authentic', '0')
+        return 1, 'role request refused'
+    auth.enable_battery_auth = gauges_fail_late
+    auth.request_host_data_role = role_then_lose_gauges
+    log = fixture.run_main()
+    check('a gauge failure at the role fallback keeps the gate closed and the run alive',
+          not auth.pd_verified(fixture.root) and gauges == ['verify'] and 'standard_pps=refused' in log, log)
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
     fixture.set('current_state', 'SNK_Startup')
     fixture.set('real_type', 'Unknown')
     def late_contract():
