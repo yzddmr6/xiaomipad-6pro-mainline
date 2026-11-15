@@ -6,6 +6,12 @@
  * seeing KEY_POWER so the same key can wake a blanked panel. logind and GNOME
  * Settings Daemon are configured to take no power action; this process only
  * classifies the duration and delegates a fixed, fail-closed desktop action.
+ *
+ * It also returns a background wake to sleep. A resume that no power-key
+ * press follows was not asked for by the user; GNOME would keep the board
+ * awake for its whole idle timeout again. While the window below lasts, the
+ * helper's "resuspend" action suspends again as soon as the session is
+ * locked, dark, idle and nothing inhibits sleep.
  */
 #define _GNU_SOURCE
 
@@ -32,6 +38,15 @@
 #define SHORT_PRESS_MIN_MS 40
 #define RECONNECT_MS 1000
 #define ACTION_TIMEOUT_MS 5000
+/* GNOME blanks a locked session after 30 idle seconds; the first look comes
+ * before that and the helper waits for the blank. */
+#define RESUSPEND_FIRST_MS 20000
+#define RESUSPEND_RETRY_MS 5000
+/* After this the session's own idle timeout applies again. */
+#define RESUSPEND_WINDOW_MS (10 * 60 * 1000)
+/* CLOCK_BOOTTIME minus CLOCK_MONOTONIC grows only while suspended. */
+#define RESUME_MIN_SLEEP_MS 1000
+#define HELPER_NOT_YET 75
 #define BITS_PER_LONG (sizeof(unsigned long) * 8U)
 #define NBITS(x) (((x) + BITS_PER_LONG - 1U) / BITS_PER_LONG)
 
@@ -53,6 +68,12 @@ struct power_fsm {
 	int64_t pressed_at_ms;
 };
 
+struct background_wake {
+	bool armed;
+	int64_t next_ms;
+	int64_t deadline_ms;
+};
+
 static volatile sig_atomic_t stopping;
 
 static int64_t monotonic_ms(void)
@@ -62,6 +83,18 @@ static int64_t monotonic_ms(void)
 	if (clock_gettime(CLOCK_MONOTONIC, &now) < 0)
 		return -1;
 	return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+}
+
+/* Milliseconds spent suspended since boot. */
+static int64_t suspended_ms(void)
+{
+	struct timespec boot, mono;
+
+	if (clock_gettime(CLOCK_BOOTTIME, &boot) < 0 ||
+	    clock_gettime(CLOCK_MONOTONIC, &mono) < 0)
+		return -1;
+	return ((int64_t)boot.tv_sec - mono.tv_sec) * 1000 +
+	       ((int64_t)boot.tv_nsec - mono.tv_nsec) / 1000000;
 }
 
 static int64_t input_event_ms(const struct input_event *event, int64_t now_ms)
@@ -150,7 +183,8 @@ static int open_power_key(bool *currently_down)
 	return result;
 }
 
-static int run_action(const char *helper, const char *action)
+/* The helper's exit status, or -1 if it could not run to completion. */
+static int run_helper(const char *helper, const char *action)
 {
 	int64_t deadline;
 	pid_t pid;
@@ -196,13 +230,69 @@ static int run_action(const char *helper, const char *action)
 		(void)nanosleep(&pause, NULL);
 	}
 
-	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+	if (!WIFEXITED(status)) {
 		fprintf(stderr, "liuqin-power-keyd: %s action failed status=%d\n",
 			action, status);
 		return -1;
 	}
+	return WEXITSTATUS(status);
+}
+
+static int run_action(const char *helper, const char *action)
+{
+	int status = run_helper(helper, action);
+
+	if (status) {
+		if (status > 0)
+			fprintf(stderr, "liuqin-power-keyd: %s action failed status=%d\n",
+				action, status);
+		return -1;
+	}
 	fprintf(stderr, "liuqin-power-keyd: %s action complete\n", action);
 	return 0;
+}
+
+static void background_resumed(struct background_wake *bg, int64_t now_ms)
+{
+	bg->armed = true;
+	bg->next_ms = now_ms + RESUSPEND_FIRST_MS;
+	bg->deadline_ms = now_ms + RESUSPEND_WINDOW_MS;
+}
+
+static void background_cancel(struct background_wake *bg, const char *why)
+{
+	if (!bg->armed)
+		return;
+	bg->armed = false;
+	fprintf(stderr, "liuqin-power-keyd: background wake ended: %s\n", why);
+}
+
+static void background_advance(struct background_wake *bg, int64_t now_ms,
+			       const char *helper)
+{
+	int status;
+
+	if (!bg->armed || now_ms < bg->next_ms)
+		return;
+	status = run_helper(helper, "resuspend");
+	if (status == HELPER_NOT_YET && now_ms + RESUSPEND_RETRY_MS <= bg->deadline_ms) {
+		bg->next_ms = now_ms + RESUSPEND_RETRY_MS;
+		return;
+	}
+	background_cancel(bg, status == 0 ? "suspend requested" :
+			  status == HELPER_NOT_YET ? "session stayed visible or active" :
+			  "session not eligible");
+}
+
+static int background_timeout_ms(const struct background_wake *bg, int64_t now_ms)
+{
+	if (!bg->armed)
+		return RECONNECT_MS;
+	if (bg->next_ms <= now_ms)
+		return 0;
+	if (bg->next_ms - now_ms > RECONNECT_MS)
+		return RECONNECT_MS;
+	return (int)(bg->next_ms - now_ms);
 }
 
 static void fsm_reset(struct power_fsm *fsm, bool ignore_until_release)
@@ -301,6 +391,7 @@ static int poll_timeout_ms(const struct power_fsm *fsm, int64_t now_ms)
 static int run_test_script(const char *path, const char *helper)
 {
 	struct power_fsm fsm = { 0 };
+	struct background_wake bg = { 0 };
 	char action[32];
 	long long offset;
 	long long previous = -1;
@@ -335,13 +426,19 @@ static int run_test_script(const char *path, const char *helper)
 			event = FSM_RECONNECT_DOWN;
 		else if (!strcmp(action, "signal"))
 			event = FSM_STOP;
-		else if (!strcmp(action, "tick")) {
+		else if (!strcmp(action, "resume")) {
+			background_resumed(&bg, offset);
+			continue;
+		} else if (!strcmp(action, "tick")) {
 			fsm_advance(&fsm, offset, helper);
+			background_advance(&bg, offset, helper);
 			continue;
 		} else {
 			fclose(stream);
 			return 64;
 		}
+		if (event == FSM_PRESS)
+			background_cancel(&bg, "power key");
 		if (!fsm_handle(&fsm, event, offset, helper))
 			break;
 	}
@@ -356,13 +453,15 @@ static int run_test_script(const char *path, const char *helper)
 static int run_daemon(const char *helper)
 {
 	struct power_fsm fsm = { 0 };
+	struct background_wake bg = { 0 };
+	int64_t asleep_ms = suspended_ms();
 	int fd = -1;
 
 	while (!stopping) {
 		struct pollfd poll_fd;
 		bool currently_down;
-		int64_t now_ms;
-		int rc;
+		int64_t now_ms, slept_ms;
+		int rc, timeout;
 
 		if (fd < 0) {
 			fd = open_power_key(&currently_down);
@@ -381,7 +480,10 @@ static int run_daemon(const char *helper)
 		poll_fd.fd = fd;
 		poll_fd.events = POLLIN;
 		poll_fd.revents = 0;
-		rc = poll(&poll_fd, 1, poll_timeout_ms(&fsm, now_ms));
+		timeout = poll_timeout_ms(&fsm, now_ms);
+		if (background_timeout_ms(&bg, now_ms) < timeout)
+			timeout = background_timeout_ms(&bg, now_ms);
+		rc = poll(&poll_fd, 1, timeout);
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
@@ -391,8 +493,20 @@ static int run_daemon(const char *helper)
 		now_ms = monotonic_ms();
 		if (now_ms < 0)
 			return 1;
+		/* Look for a resume before reading input: the wake key's press is
+		 * delivered only after the resume, so it always cancels the window. */
+		slept_ms = suspended_ms();
+		if (slept_ms >= 0 && asleep_ms >= 0 &&
+		    slept_ms - asleep_ms >= RESUME_MIN_SLEEP_MS) {
+			fprintf(stderr, "liuqin-power-keyd: resumed after %lld ms asleep\n",
+				(long long)(slept_ms - asleep_ms));
+			background_resumed(&bg, now_ms);
+		}
+		if (slept_ms >= 0)
+			asleep_ms = slept_ms;
 		if (rc == 0) {
 			fsm_advance(&fsm, now_ms, helper);
+			background_advance(&bg, now_ms, helper);
 			continue;
 		}
 		if (poll_fd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
@@ -429,8 +543,10 @@ static int run_daemon(const char *helper)
 					continue;
 				if (input_event.value == 0)
 					event = FSM_RELEASE;
-				else if (input_event.value == 1)
+				else if (input_event.value == 1) {
 					event = FSM_PRESS;
+					background_cancel(&bg, "power key");
+				}
 				else if (input_event.value == 2)
 					event = FSM_REPEAT;
 				else

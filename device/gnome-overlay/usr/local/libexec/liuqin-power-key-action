@@ -1,6 +1,11 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # Fixed desktop actions for liuqin-power-keyd. Never power off directly.
+#   short      lock and blank, or wake, per the short-press setting
+#   long       open the power chooser
+#   resuspend  after a background wake: exit 0 once suspend is requested,
+#              75 while the locked session is not yet dark and idle, 3 when
+#              it must stay awake (unlocked, inhibited, fast charging)
 set -eu
 
 action=${1:-}
@@ -9,6 +14,8 @@ gdbus=${LIUQIN_GDBUS:-/usr/bin/gdbus}
 gsettings=${LIUQIN_GSETTINGS:-/usr/bin/gsettings}
 systemctl=${LIUQIN_SYSTEMCTL:-/usr/bin/systemctl}
 systemd_run=${LIUQIN_SYSTEMD_RUN:-/usr/bin/systemd-run}
+busctl=${LIUQIN_BUSCTL:-/usr/bin/busctl}
+wakeup_dir=${LIUQIN_WAKEUP_DIR:-/sys/class/wakeup}
 power_menu=${LIUQIN_POWER_MENU:-/usr/local/libexec/liuqin-power-menu}
 power_schema_dir=${LIUQIN_POWER_SCHEMA_DIR:-/usr/share/liuqin/power}
 setpriv=${LIUQIN_SETPRIV:-/usr/bin/setpriv}
@@ -17,7 +24,7 @@ env_cmd=${LIUQIN_ENV:-/usr/bin/env}
 runtime_base=${LIUQIN_RUNTIME_BASE:-/run/user}
 state_dir=${LIUQIN_STATE_DIR:-/run/liuqin-power-keyd}
 
-case $action in short|long) ;; *) exit 64 ;; esac
+case $action in short|long|resuspend) ;; *) exit 64 ;; esac
 
 session=$("$loginctl" show-seat seat0 --property=ActiveSession --value 2>/dev/null || :)
 [ -n "$session" ] && [ "$session" != n/a ] || {
@@ -63,7 +70,41 @@ session_call() {
 	session_command "$gdbus" call --session --timeout 5 "$@"
 }
 
-if [ "$action" = short ]; then
+if [ "$action" = resuspend ]; then
+	# Mirrors gsd-power's idle suspend, sooner: the same session inhibitors
+	# and logind block inhibitors keep the board awake, and so does the
+	# kernel's wired-charger wakeup source, which a computer port never holds.
+	active_reply=$(session_call --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver \
+		--method org.gnome.ScreenSaver.GetActive 2>/dev/null || :)
+	case $active_reply in *true*) ;; *) exit 3 ;; esac
+	for source in "$wakeup_dir"/*; do
+		[ "$(cat "$source/name" 2>/dev/null || :)" = qcom-battmgr-charge ] || continue
+		held=$(cat "$source/active_time_ms" 2>/dev/null || echo 0)
+		case $held in ''|*[!0-9]*) held=0 ;; esac
+		[ "$held" -eq 0 ] || exit 3
+	done
+	inhibited=$(session_call --dest org.gnome.SessionManager --object-path /org/gnome/SessionManager \
+		--method org.gnome.SessionManager.IsInhibited 4 2>/dev/null || :)
+	case $inhibited in *false*) ;; *) exit 3 ;; esac
+	blocked=$("$busctl" get-property org.freedesktop.login1 /org/freedesktop/login1 \
+		org.freedesktop.login1.Manager BlockInhibited 2>/dev/null) || exit 3
+	case $blocked in *sleep*) exit 3 ;; esac
+	dpms_reply=$(session_call --dest org.gnome.Mutter.DisplayConfig --object-path /org/gnome/Mutter/DisplayConfig \
+		--method org.freedesktop.DBus.Properties.Get org.gnome.Mutter.DisplayConfig PowerSaveMode 2>/dev/null || :)
+	case $dpms_reply in *\<3\>*) ;; *) exit 75 ;; esac
+	idle_reply=$(session_call --dest org.gnome.Mutter.IdleMonitor --object-path /org/gnome/Mutter/IdleMonitor/Core \
+		--method org.gnome.Mutter.IdleMonitor.GetIdletime 2>/dev/null || :)
+	idle_ms=$(printf '%s\n' "$idle_reply" | sed -n 's/^(uint64 \([0-9]*\),)$/\1/p')
+	[ -n "$idle_ms" ] || exit 3
+	[ "$idle_ms" -ge 20000 ] || exit 75
+	[ -d "$state_dir" ] && [ ! -L "$state_dir" ] || exit 3
+	# The next power-key press is the wake key, never a second lock.
+	state_tmp=$state_dir/display-state.$$
+	(umask 077; printf '%s\n' suspend-requested >"$state_tmp")
+	mv -f -- "$state_tmp" "$state_dir/display-state"
+	"$systemctl" suspend
+	printf '%s\n' 'liuqin-power-key-action: background wake, suspending again'
+elif [ "$action" = short ]; then
 	policy=$(session_command "$gsettings" get io.github.liuqin.power short-press-action)
 	case $policy in
 		"'blank'") policy=blank ;;

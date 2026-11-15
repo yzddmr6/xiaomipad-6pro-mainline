@@ -54,6 +54,8 @@ jobs:
       - name: Charging status bar, idle policy and charger boot
         working-directory: tests
         run: python3 -m unittest test_charge_policy test_charger_mode
+      - name: Background-wake resuspend
+        run: python3 tests/power-key.py
       - name: Physical platform policy
         run: python3 tests/physical-platform.py
       - name: Boot-image pin ownership policy
