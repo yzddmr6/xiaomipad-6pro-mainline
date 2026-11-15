@@ -194,11 +194,45 @@ with tempfile.TemporaryDirectory() as directory:
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
     fixture.role_failure = True
-    fixture.run_main()
+    log = fixture.run_main()
     check('a refused role request sends no adapter command',
           not fixture.vdm_calls() and [e[0] for e in fixture.events] == ['role'] * 3,
           fixture.events)
-    check('a refused role request leaves the gate closed', not auth.pd_verified(fixture.root))
+    check('the last refused role request still opens standard PPS',
+          auth.pd_verified(fixture.root) and fixture.state_value() == 'pps ' + ATTACH and
+          'auth_attempt=3/3 failed: host role request failed' in log and 'pd_auth=0' in log, log)
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.role_failure = True
+    fixture.run_main('--no-allow-unverified-adapter')
+    check('strict policy keeps the gate closed after refused role requests',
+          not auth.pd_verified(fixture.root) and fixture.state_value() == 'none')
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.role_failure = True
+    fixture.set('real_type', 'PD')
+    auth.usb_is_online = lambda: fixture.clock < 80
+    try:
+        fixture.run_main()
+    except auth.UnsupportedChargerError:
+        pass
+    check('a refused role request on fixed PD opens no third-party gate',
+          not auth.pd_verified(fixture.root) and fixture.state_value() != 'pps ' + ATTACH)
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('authentic', '0')
+    fixture.set('slave_authentic', '0')
+    fixture.role_failure = True
+    def fail_gauge(_root):
+        fixture.events.append(('fuel-gauge',))
+        raise RuntimeError('slave_authentic digest verification failed')
+    auth.enable_battery_auth = fail_gauge
+    fixture.run_main()
+    check('the role fallback never opens the gate without both fuel gauges',
+          not auth.pd_verified(fixture.root) and not [e for e in fixture.events if e[0] == 'role'])
 
 with tempfile.TemporaryDirectory() as directory:
     fixture = Fixture(directory)
@@ -261,10 +295,14 @@ with tempfile.TemporaryDirectory() as directory:
         return [str(cable)] if pattern == '/sys/class/typec/port*-cable' else glob(pattern)
     with patch.object(auth.glob, 'glob', cable_glob):
         log = fixture.run_main()
-    check('standard PPS accepts a 3 A advertisement after bounded retries',
-          fixture.vdm_calls() == [1, 1, 1] and fixture.role() == DEVICE_ROLE and
+    check('standard PPS accepts a 3 A advertisement after one probe of a non-Xiaomi source',
+          fixture.vdm_calls() == [1] and fixture.role() == DEVICE_ROLE and
           fixture.state_value() == 'pps ' + ATTACH and 'pd_auth=0' in log and
-          auth.pd_verified(fixture.root))
+          auth.pd_verified(fixture.root) and 'auth_attempt=' not in log, log)
+    # One probe times out once (--timeout 4); the old three rounds and two
+    # backoffs took about 15 s before standard PPS.
+    check('a non-Xiaomi source reaches standard PPS without retries or backoff',
+          fixture.clock < 8, fixture.clock)
     fixture.events.clear()
     fixture.run_main()
     check('duplicate event preserves the PPS verdict', not fixture.events)
@@ -308,6 +346,11 @@ for failure in ('offline', 'not-ready', 'role-refused', 'no-partner', 'fixed-pd'
         if failure == 'fixed-pd':
             check('fixed PD never asserts the third-party gate', 'pps ' + ATTACH != fixture.state_value()
                   and fixture.vdm_calls() == [1, 1, 1])
+        if failure == 'role-refused':
+            # The stale MiPPS success is cleared; the PPS contract earns a fresh verdict.
+            check('role-refused replaces stale success with standard PPS',
+                  fixture.state_value() == 'pps ' + ATTACH and auth.pd_verified(str(fixture.root)))
+            continue
         check(f'{failure} clears stale success', not auth.pd_verified(str(fixture.root)))
 
 with tempfile.TemporaryDirectory() as directory:
@@ -375,3 +418,14 @@ with tempfile.TemporaryDirectory() as directory:
     check('battery authentication failure blocks standard PPS',
           not auth.pd_verified(fixture.root) and not fixture.vdm_calls() and
           'auth_attempt=3/3 failed: slave_authentic' in log)
+
+with tempfile.TemporaryDirectory() as directory:
+    fixture = Fixture(directory)
+    fixture.set('power_max', '67')
+    battery = Path(directory) / 'battery'
+    battery.mkdir()
+    (battery / 'capacity').write_text('99\n')
+    with patch.object(auth, 'find_power_supply', lambda *_names: str(battery)):
+        profiles = [auth.current_charge_profile(str(fixture.root), pd_auth) for pd_auth in (True, False)]
+    check('a high charge still records the negotiated fast-charge profile',
+          profiles == [('MiPPS', 67), ('PPS', 67)], profiles)
