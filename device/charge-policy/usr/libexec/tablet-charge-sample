@@ -35,14 +35,26 @@ def attach_token(sys):
     return None
 
 
-def liuqin_charger(sys, run=RUN):
-    """The 6 Pro firmware's charging path state and the authenticator's verdict.
+def liuqin_xiaomi(sys):
+    """The 6 Pro charger firmware's property directory."""
+    return next((sys / 'devices/platform/pmic-glink').glob('*/xiaomi'), sys / 'class/qcom-battery')
+
+
+def liuqin_auth(sys, run=RUN):
+    """The authenticator's verdict, "mipps" or "pps", for the current partner.
 
     The ADSP firmware chooses and regulates the path; Linux only authenticates.
-    The authenticator records "mipps" or "pps" for the partner it opened the
-    high-voltage gate for; a verdict for another partner is not this charge.
+    A verdict recorded for another partner is not this charge.
     """
-    xm = next((sys / 'devices/platform/pmic-glink').glob('*/xiaomi'), sys / 'class/qcom-battery')
+    verdict = (read(run / 'liuqin-mipps-auth/verified-attach') or '').split()
+    token = attach_token(sys)
+    return (verdict[0] if len(verdict) == 2 and verdict[0] in ('mipps', 'pps')
+            and token is not None and verdict[1] == token else None)
+
+
+def liuqin_charger(sys, run=RUN):
+    """The 6 Pro firmware's charging path state and the authenticator's verdict."""
+    xm = liuqin_xiaomi(sys)
     state = {key: read(xm / key) for key in
              ('fastchg_mode', 'pd_verifed', 'authentic', 'slave_authentic',
               'current_state', 'real_type', 'apdo_max', 'power_max',
@@ -53,10 +65,7 @@ def liuqin_charger(sys, run=RUN):
     if temp is not None and temp >= 1 << 31:
         temp -= 1 << 32
     state['connector_temp_decic'] = temp
-    verdict = (read(run / 'liuqin-mipps-auth/verified-attach') or '').split()
-    token = attach_token(sys)
-    state['auth'] = (verdict[0] if len(verdict) == 2 and verdict[0] in ('mipps', 'pps')
-                     and token is not None and verdict[1] == token else None)
+    state['auth'] = liuqin_auth(sys, run)
     return state
 
 

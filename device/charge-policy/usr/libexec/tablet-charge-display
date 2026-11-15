@@ -109,9 +109,16 @@ def snapshot(root, device, show_offline, run=Path('/run')):
     if online not in (0, 1, 2):
         return {}
     row = dict(device=device, online=online)
-    liuqin = sampler['liuqin_charger'](root, run) if device == 'liuqin' else None
+    liuqin = None
+    if device == 'liuqin' and online:
+        # Every node is a firmware round trip: read only what the panel shows.
+        xm = sampler['liuqin_xiaomi'](root)
+        liuqin = {key: read(xm / key) for key in ('real_type', 'pd_verifed', 'fastchg_mode',
+                                                  'bq2597x_bus_voltage', 'bq2597x_bus_current',
+                                                  'bq2597x_slave_bus_current')}
+        liuqin['auth'] = sampler['liuqin_auth'](root, run) if liuqin['pd_verifed'] == '1' else None
     # The 6 Pro firmware exports no exit counter: without the key the rows stay hidden.
-    if liuqin is None:
+    if device != 'liuqin':
         row['exits'] = number(fields, 'exits')
     try:
         row['partner'] = (root / 'class/typec/port0-partner').stat().st_ino
@@ -126,7 +133,7 @@ def snapshot(root, device, show_offline, run=Path('/run')):
                 break
         uv = read(source / 'voltage_now', int) if online else None
         ua = read(source / 'current_now', int) if online else None
-        if liuqin is not None and online:
+        if liuqin is not None:
             uv, ua = liuqin_input(liuqin, uv, ua)
         cells = []
         for name in sampler['CELLS'][device]:
@@ -143,7 +150,7 @@ def snapshot(root, device, show_offline, run=Path('/run')):
                               if v and v > 0 and full and full > 0 and soc is not None and 0 <= soc <= 100 else None))
         watts = sum(c['watts'] for c in cells) if all(c['watts'] is not None for c in cells) else None
         path, mv, ma = path_details(device, source, fields, usb) if online else (None, None, None)
-        if liuqin is not None and online:
+        if liuqin is not None:
             path = liuqin_path(liuqin) or path
         serial = path == 'SUPERVOOC' and 'request_code' in fields
         if serial:
@@ -153,8 +160,8 @@ def snapshot(root, device, show_offline, run=Path('/run')):
                    amps=ua / 1e6 if ua is not None and ua >= 0 else None, path=path,
                    minutes=round(60 * sum(c['remaining_wh'] for c in cells) / watts)
                    if online and watts and watts > 0 and all(c['remaining_wh'] is not None for c in cells) else None)
-        if liuqin is None:
-            # No requested voltage, current or exit reason leaves the 6 Pro firmware.
+        # The 6 Pro firmware exports no requested voltage, current or exit reason.
+        if device != 'liuqin':
             row.update(request_v=mv / 1000 if mv and mv > 0 else None,
                        request_a=ma / 1000 if ma is not None and (ma > 0 or (serial and ma == 0)) else None,
                        reason=fields.get('last_exit'), secondary=fields.get(
