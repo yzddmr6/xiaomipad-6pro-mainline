@@ -18,7 +18,9 @@ RuntimeDirectory=sshd
 RuntimeDirectoryMode=0755
 RuntimeDirectoryPreserve=yes
 ExecStartPre=/usr/sbin/liuqin-devmode check
-ExecStart=/usr/bin/systemd-inhibit --what=sleep --mode=block --who=liuqin-devmode "--why=USB developer connection is enabled" /usr/libexec/liuqin/devmode-gadget serve
+# systemd-inhibit does not pass NOTIFY_SOCKET on to its child, so the socket
+# path is handed to the gadget script as an argument (as on the 8 Pro).
+ExecStart=/usr/bin/systemd-inhibit --what=sleep --mode=block --who=liuqin-devmode "--why=USB developer connection is enabled" /usr/libexec/liuqin/devmode-gadget serve ${NOTIFY_SOCKET}
 ExecStop=/usr/libexec/liuqin/devmode-gadget stop
 
 [Install]

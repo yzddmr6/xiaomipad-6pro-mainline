@@ -88,7 +88,7 @@ serve)
 	# Bind the gadget, report readiness and stay the service's process, so the
 	# systemd-inhibit lock that wraps this command lasts as long as the gadget.
 	start
-	systemd-notify --ready
+	NOTIFY_SOCKET="${2:?missing service notification socket}" systemd-notify --ready
 	exec /usr/bin/sleep infinity
 	;;
 start) start ;;
