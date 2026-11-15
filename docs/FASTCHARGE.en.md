@@ -7,9 +7,10 @@ The Xiaomi Pad 6 Pro’s ADSP charger firmware negotiates voltage and current. O
 | MiPPS | Adapter passes Xiaomi’s UVDM handshake | Enables the Xiaomi high-voltage fast-charge path |
 | Standard PPS | Adapter does not pass the Xiaomi handshake and the negotiated PPS contract is ready | Enables the standard PPS high-voltage fast-charge path by default |
 | Plain PD | Fixed-voltage contract | Uses the negotiated fixed-voltage profile |
-| DCP, SDP | Conventional USB power | Firmware charges within the source’s capabilities |
+| DCP | Conventional USB charger | Firmware charges within the source’s capabilities |
+| SDP | Computer USB port | Draws 500 mA |
 
-The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. Computer USB ports supply only the power available from the port and cable. Battery charge can fall when system demand exceeds that input.
+The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. On a wall charger or another wired charger the system stays awake, so fast charging continues with the screen off; on a computer USB port it does not, and the tablet suspends after 15 idle minutes as usual. A computer USB port is drawn at 500 mA, which charges the battery while the tablet is idle or asleep. Battery charge can still fall when system demand exceeds that input.
 
 ## Validation status
 
@@ -89,9 +90,13 @@ The service enables `--allow-unverified-adapter` by default. Even if a third-par
 
 Standard PPS also works with a 3 A cable. A compliant source advertises at most 3 A with a detachable 3 A cable. Before constructing a PPS request, the tablet firmware checks each Augmented Power Data Object (APDO) for its voltage range and maximum current. It skips any entry that cannot supply the requested voltage or current.
 
+## Status bar
+
+With wired power connected, the GNOME top bar shows the net battery charging power and the charging path: MiPPS, PPS, PD, QC or USB. Its menu lists the charger input (voltage, current and power, including both charge pumps during fast charging), net battery power, cell voltage, battery temperature, the time to full at the current rate, and “Staying awake to keep charging”: Yes on a wall charger, No on a computer port. With “Show on battery” switched on at the bottom of the menu, the discharge power is shown on battery as well.
+
 ## Charging records
 
-`tablet-charge-sample.timer` samples about once a minute while the system is awake. The sleep hook also records one sample before suspend and one after resume. During continuous battery use, the periodic log records only the offline boundary. Powered samples include the time, battery level and temperature, USB and battery voltage and current (µV and µA), firmware mode, authentication flags, the helper’s verdict for the current partner (`pump.auth`: `mipps`, `pps` or `null`), pump bus voltage, both pump currents and the requested thermal level. Positive battery current means net charging. The connector temperature field `pump.connector_temp_decic` is in tenths of a degree Celsius. Unavailable measurements are recorded as `null`.
+`tablet-charge-sample.timer` samples about once a minute while the system is awake. The sleep hook also records one sample before suspend and one after resume. During continuous battery use, the periodic log records only the offline boundary. Powered samples include the time, battery level and temperature, USB and battery voltage and current (µV and µA), the charge counters `charge_counter` and `charge_now` (µAh), firmware mode, authentication flags, the helper’s verdict for the current partner (`pump.auth`: `mipps`, `pps` or `null`), pump bus voltage, both pump currents and the requested thermal level. Positive battery current means net charging. The connector temperature field `pump.connector_temp_decic` is in tenths of a degree Celsius. Unavailable measurements are recorded as `null`.
 
 Records are stored only on the tablet in `/var/lib/tablet-charge/` (mode 0700), one JSON object per line. `tablet-charge-events.service` also records one sample when a charger is attached or removed and when the charger type changes. The current file, `samples.jsonl`, rotates at about 4 MiB and the latest eight archives (`samples.1.jsonl` to `samples.8.jsonl`) are kept, all with mode 0600. To print one live sample to the terminal without appending to the log, run
 
