@@ -356,27 +356,34 @@ EOF
 	cp "$work/$pkg.postrm" "$root/DEBIAN/postrm"
 	# Disable before removal or upgrade, so a downgrade to a version without
 	# this unit cannot retain a dangling timer. New postinst enables it again.
+	# A downgrade forgets the unit entirely: deb-systemd-helper takes a unit
+	# that is recorded but unlinked for an administrator's disable, so the
+	# next upgrade's enable would leave it off (the 0.6.2 notifier case).
 	cat >"$root/DEBIAN/prerm" <<'EOF'
 #!/bin/sh
 set -e
+retire() { # retire ACTION UNIT [--user]
+    if [ "$1" = upgrade ]; then deb-systemd-helper $3 purge "$2" >/dev/null
+    else deb-systemd-helper $3 disable "$2" >/dev/null; fi
+}
 case $1 in remove|upgrade|deconfigure)
     if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.7.0; then
         if [ -d /run/systemd/system ]; then
             deb-systemd-invoke stop tablet-charge-sample.timer tablet-charge-sample.service >/dev/null
         fi
-        deb-systemd-helper disable tablet-charge-sample.timer >/dev/null
+        retire "$1" tablet-charge-sample.timer
     fi
     # 0.8.0 introduced the event recorder.
     if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.8.0; then
         if [ -d /run/systemd/system ]; then
             deb-systemd-invoke stop tablet-charge-events.service >/dev/null
         fi
-        deb-systemd-helper disable tablet-charge-events.service >/dev/null
+        retire "$1" tablet-charge-events.service
     fi
     # 0.6.2 introduced this unit. Leave its link in place across upgrades
     # and rollbacks to versions that still ship it.
     if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.6.2; then
-        deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
+        retire "$1" mainline-release-notifier.timer --user
     fi
     ;;
 esac
