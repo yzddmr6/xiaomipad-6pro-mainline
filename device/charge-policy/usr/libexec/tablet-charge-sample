@@ -1,6 +1,5 @@
 #!/usr/bin/python3
 # SPDX-License-Identifier: MIT
-# Source: xiaomipad-8pro-mainline 6593a99, device/charge-policy/usr/
 """Record local power-supply measurements. Sysfs current is positive into the pack."""
 import argparse
 import fcntl
@@ -57,18 +56,11 @@ def sample(sys, device, phase):
         row['pump'] = {key: read(supplies / 'sc8541' / key, int)
                        for key in ('online', 'current_now', 'voltage_now', 'temp')}
     elif device == 'liuqin':
-        xm = next((sys / 'devices/platform/pmic-glink').glob('*/xiaomi'),
-                  sys / 'class/qcom-battery')
-        row['pump'] = {key: read(xm / key) for key in
-                       ('fastchg_mode', 'pd_verifed', 'authentic', 'slave_authentic',
-                        'current_state', 'real_type', 'apdo_max', 'power_max',
-                        'bq2597x_bus_voltage', 'bq2597x_bus_current', 'bq2597x_slave_bus_current',
-                        'thermal_level_requested')}
-        # XM_CONNECTOR_TEMP is signed deci-C, printed with %u by sm8475_raw.
-        temp = read(xm.parent / 'sm8475_raw/raw_xm_connector_temp', int)
-        if temp is not None and temp >= 1 << 31:
-            temp -= 1 << 32
-        row['pump']['connector_temp_decic'] = temp
+        for xm in (sys / 'devices/platform/pmic-glink').glob('*/xiaomi'):
+            row['pump'] = {key: read(xm / key) for key in
+                           ('fastchg_mode', 'pd_verifed', 'current_state', 'real_type',
+                            'bq2597x_bus_voltage', 'bq2597x_bus_current', 'bq2597x_slave_bus_current',
+                            'thermal_level_requested')}
     partner_paths = list((sys / 'class/typec').glob('port[0-9]*-partner'))
     if len(partner_paths) == 1:
         try:
@@ -82,6 +74,47 @@ def sample(sys, device, phase):
     if read(source / 'online', int) != before:
         row['online'] = None
     return row
+
+
+def contract_state(sys, device):
+    source = sys / 'class/power_supply' / SOURCE[device]
+    contract = source / ('xiaomi/charge_profile' if device == 'piano' else 'charge_contract')
+    return (read(source / 'online', int), read(source / 'usb_type'), read(contract))
+
+
+def signature(online, usb_type, contract):
+    # Instantaneous pump current and remaining backoff change without a new contract.
+    fields = tuple(field for field in (contract or '').split()
+                   if not field.startswith(('pump_ibus_ma=', 'retry_ms=')))
+    return online, usb_type, fields
+
+
+def monitor_contract(device):
+    import pyudev
+    import select
+    monitor = pyudev.Monitor.from_netlink(pyudev.Context())
+    monitor.filter_by(subsystem='power_supply')
+    monitor.start()
+    last = signature(*contract_state(SYS, device))
+    earliest = 0
+    while True:
+        select.select([monitor], [], [])
+        delay = earliest - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        changed = False
+        while (event := monitor.poll(timeout=0)) is not None:
+            changed |= event.action == 'change'
+        if not changed:
+            continue
+        earliest = time.monotonic() + 1
+        if signature(*contract_state(SYS, device)) == last:
+            continue
+        row = sample(SYS, device, 'event')
+        current = signature(row['online'], row.get('usb_type'), row.get('contract'))
+        if current != last:
+            record(STATE, row)
+            last = current
 
 
 def record(state, row):
@@ -98,6 +131,10 @@ def record(state, row):
         else:
             (state / '.offline').unlink(missing_ok=True)
         if path.exists() and path.stat().st_size >= 4 * 1024 * 1024:
+            for index in range(7, 0, -1):
+                backup = state / f'samples.{index}.jsonl'
+                if backup.exists():
+                    backup.replace(state / f'samples.{index + 1}.jsonl')
             path.replace(state / 'samples.1.jsonl')
         with path.open('a') as stream:
             print(json.dumps(row, separators=(',', ':'), allow_nan=False), file=stream)
@@ -105,13 +142,19 @@ def record(state, row):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('phase', nargs='?', choices=('periodic', 'pre', 'post'), default='periodic')
+    parser.add_argument('phase', nargs='?', choices=('periodic', 'pre', 'post', 'monitor'), default='periodic')
     parser.add_argument('--device', choices=CELLS)
     parser.add_argument('--stdout', action='store_true')
     args = parser.parse_args()
     device = args.device or read(Path('/usr/share/tablet-charge/device'))
     if device not in CELLS:
         parser.error('missing or invalid /usr/share/tablet-charge/device')
+    if args.phase == 'monitor':
+        if args.stdout:
+            parser.error('monitor writes the event log')
+        os.umask(0o077)
+        monitor_contract(device)
+        return
     row = sample(SYS, device, args.phase)
     if args.stdout:
         print(json.dumps(row))
