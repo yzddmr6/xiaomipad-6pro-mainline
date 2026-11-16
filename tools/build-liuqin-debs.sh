@@ -5,7 +5,8 @@
 # kernel inputs. Each package owns its installed content.
 #
 #   firmware        /usr/lib/firmware closure from build-liuqin-firmware-prep.sh
-#   device-support  gnome-overlay + compiled helpers + rescue shell + power panel
+#   device-support  gnome-overlay + shared charge policy + compiled helpers +
+#                   power panel
 #   sensors         SSC userspace from build-liuqin-sensors-stack.sh
 #   kernel          modules tree + /boot payload (input-gated; boot write is C)
 #   meta            liuqin-device metapackage depending on all of the above
@@ -234,6 +235,20 @@ $(cd "$project_root/device/release-notifier" && find usr -type f | LC_ALL=C sort
 EOF
 	install -d "$root/usr/share/mainline-release"
 	printf '%s\n' "$version" >"$root/usr/share/mainline-release/version"
+	# Shared charging policy, telemetry and status-bar indicator, byte for byte
+	# the 8 Pro and OnePlus copy. Modes are normalised so every board ships the
+	# same bytes and permissions, whatever the checkout umask.
+	charge_policy=$project_root/device/charge-policy
+	while IFS= read -r rel; do
+		[ -n "$rel" ] || continue
+		[ ! -e "$root/$rel" ] || die "the overlay and the shared charge policy both ship /$rel"
+		if [ -x "$charge_policy/$rel" ]; then mode=0755; else mode=0644; fi
+		install -D -m "$mode" "$charge_policy/$rel" "$root/$rel"
+	done <<EOF
+$(cd "$charge_policy" && find usr -type f ! -path '*/__pycache__/*' | LC_ALL=C sort)
+EOF
+	[ -x "$root/usr/libexec/tablet-charge-idle" ] && [ -x "$root/usr/libexec/tablet-charge-display" ] ||
+		die 'the shared charge policy is incomplete'
 	# Adapt the shared storage guard to the native root marker.
 	guard=$root/usr/local/sbin/liuqin-gnome-storage-guard
 	grep -qx 'marker=${LIUQIN_GNOME_GUARD_TEST_MARKER:-/etc/liuqin-gnome-root}' "$guard" ||
@@ -321,8 +336,8 @@ EOF
 		printf '\trm -f /etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl daemon-reload || :; fi\n'
 		printf '\tif command -v dconf >/dev/null; then dconf update || :; fi\n'
-		printf '\tdeb-systemd-helper enable tablet-charge-sample.timer >/dev/null\n'
-		printf '\tif [ -d /run/systemd/system ]; then deb-systemd-invoke start tablet-charge-sample.timer >/dev/null; fi\n'
+		printf '\tdeb-systemd-helper enable tablet-charge-sample.timer tablet-charge-events.service >/dev/null\n'
+		printf '\tif [ -d /run/systemd/system ]; then deb-systemd-invoke start tablet-charge-sample.timer tablet-charge-events.service >/dev/null; fi\n'
 		printf '\tsystemctl enable liuqin-mipps-battery-auth.service\n'
 		printf '\trm -f /etc/systemd/system/liuqin-hide-gunyah-node.service\n'
 		printf '\tif [ -d /run/systemd/system ]; then systemctl stop liuqin-gnome-usb-rescue.service || :; fi\n'
@@ -341,31 +356,45 @@ EOF
 	cp "$work/$pkg.postrm" "$root/DEBIAN/postrm"
 	# Disable before removal or upgrade, so a downgrade to a version without
 	# this unit cannot retain a dangling timer. New postinst enables it again.
+	# A downgrade forgets the unit entirely: deb-systemd-helper takes a unit
+	# that is recorded but unlinked for an administrator's disable, so the
+	# next upgrade's enable would leave it off (the 0.6.2 notifier case).
 	cat >"$root/DEBIAN/prerm" <<'EOF'
 #!/bin/sh
 set -e
+retire() { # retire ACTION UNIT [--user]
+    if [ "$1" = upgrade ]; then deb-systemd-helper $3 purge "$2" >/dev/null
+    else deb-systemd-helper $3 disable "$2" >/dev/null; fi
+}
 case $1 in remove|upgrade|deconfigure)
     if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.7.0; then
         if [ -d /run/systemd/system ]; then
             deb-systemd-invoke stop tablet-charge-sample.timer tablet-charge-sample.service >/dev/null
         fi
-        deb-systemd-helper disable tablet-charge-sample.timer >/dev/null
+        retire "$1" tablet-charge-sample.timer
+    fi
+    # 0.8.0 introduced the event recorder.
+    if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.8.0; then
+        if [ -d /run/systemd/system ]; then
+            deb-systemd-invoke stop tablet-charge-events.service >/dev/null
+        fi
+        retire "$1" tablet-charge-events.service
     fi
     # 0.6.2 introduced this unit. Leave its link in place across upgrades
     # and rollbacks to versions that still ship it.
     if [ "$1" != upgrade ] || dpkg --compare-versions "$2" lt 0.6.2; then
-        deb-systemd-helper --user disable mainline-release-notifier.timer >/dev/null
+        retire "$1" mainline-release-notifier.timer --user
     fi
     ;;
 esac
 EOF
 	cat >>"$root/DEBIAN/postrm" <<'EOF'
 if [ "$1" = purge ]; then
-    deb-systemd-helper purge tablet-charge-sample.timer >/dev/null
+    deb-systemd-helper purge tablet-charge-sample.timer tablet-charge-events.service >/dev/null
     deb-systemd-helper --user purge mainline-release-notifier.timer >/dev/null
 fi
 EOF
-	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0), python3-gi, init-system-helpers'  \
+	pack "$pkg" arm64 'libasound2t64 (>= 1.2), gnome-control-center (>= 1:50.0), python3-gi, python3-pyudev, init-system-helpers'  \
 		'Xiaomi Pad 6 Pro (liuqin) device support: units, helpers, key-only USB maintenance, power panel'
 }
 

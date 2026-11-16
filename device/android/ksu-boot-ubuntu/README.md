@@ -108,7 +108,7 @@ table first, update, then install again.
 Build the zip and install it from the KernelSU manager:
 
 ```
-sh tools/build-ksu-module.sh          # -> out/ksu-module/liuqin_boot_ubuntu-v0.3.zip
+sh tools/build-ksu-module.sh          # -> out/ksu-module/liuqin_boot_ubuntu-v0.4.zip
 ```
 
 Recovery sideload is deliberately rejected — it would unpack the files outside

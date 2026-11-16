@@ -7,13 +7,6 @@ die() { echo "liuqin-preflight: $*" >&2; exit 1; }
 [ "$(cat /proc/sys/kernel/random/boot_id)" = "$1" ] || die 'RAM boot identity changed'
 [ "$(cat /etc/liuqin-installer)" = liuqin ] || die 'not the RAM installer'
 case $2 in ''|*[!0-9]*) die 'invalid archive size';; esac
-battery=
-for supply in /sys/class/power_supply/*; do
- [ "$(cat "$supply/type" 2>/dev/null)" = Battery ] || continue
- battery=$(cat "$supply/capacity"); break
-done
-case $battery in ''|*[!0-9]*) die 'battery level is unavailable';; esac
-[ "$battery" -ge 30 ] || die 'charge to at least 30 percent before installation'
 available=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)
 case $available in ''|*[!0-9]*) die 'available memory is unknown';; esac
 [ "$2" -gt 0 ] && [ "$(( $2 + 536870912 ))" -lt "$((available * 1024))" ] || die 'insufficient RAM'
@@ -41,4 +34,4 @@ PERSIST_SRC=$work/persist sh /usr/lib/liuqin/provision.sh "$work/root" >/dev/nul
 cleanup
 mounted=false
 trap - EXIT HUP INT TERM
-echo 'liuqin-preflight: battery, memory and factory data PASS'
+echo 'liuqin-preflight: memory and factory data PASS'

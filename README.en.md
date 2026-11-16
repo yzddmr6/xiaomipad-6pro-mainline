@@ -63,7 +63,7 @@ At a glance; see the tables for the scope of each feature:
 | Touchscreen | Novatek NT36532 / SPI (CSOT or TM panel) | ✅ Working | Firmware selected automatically by panel module; taps, swipes and gestures |
 | Magnetic keyboard | Nanosic WN8030 | ✅ Working | Character and volume keys and touchpad; typing resumes after reattaching |
 | Fingerprint | FPC1264 / libfprint TOD / fprintd | ✅ Working | Enrol in Settings → Users, then unlock the screen or log in at boot; currently the first account (UID 1000) with one finger, see the [fingerprint guide](docs/FINGERPRINT.en.md) |
-| Cover open/close | GPIO / SW_LID | ✅ Working | Closing the cover suspends the tablet according to the power settings |
+| Cover open/close | GPIO / SW_LID | ✅ Working | Closing the cover suspends the tablet on battery and only locks the screen on external power |
 
 Not yet supported: stylus.
 
@@ -96,11 +96,11 @@ Not yet supported: front camera, gyroscope and magnetometer, ambient light senso
 | Feature | Component / Implementation | Status | Details |
 |---|---|---|---|
 | Power / volume keys | Qualcomm PMIC / GPIO input | ✅ Working | Screen on/off, power menu and volume |
-| Battery / charging | qcom_battmgr / UPower | ✅ Working | Charge level and charging state, wall charging; the charger firmware stops charging when the charging port overheats |
+| Battery / charging | qcom_battmgr / UPower | ✅ Working | Charge level and charging state, wall charging; the charger firmware stops charging when the charging port overheats. With wired power connected, the top bar shows the net battery charging power and the charging path, and its menu adds the charger input, cell voltage, battery temperature and the time to full at the current rate, see [Fast charging](docs/FASTCHARGE.en.md#status-bar) |
 | Fast charging | MiPPS / USB PD PPS | ✅ Working | Xiaomi-authenticated chargers and third-party USB PD PPS chargers use the high-voltage fast-charge path by default. Plain PD uses a fixed-voltage profile. Failed authentication is retried automatically. See [Fast charging](docs/FASTCHARGE.en.md) |
-| Computer USB power | USB power path | 🟡 Partial | Limited supply power; the charge level can drop under heavy load |
-| Charging while powered off | Boot-stage charger mode | 🟡 Partial | Shows the battery level and charging trend. At low charge the tablet stays in charger mode. Press Power briefly to boot once the battery reaches 40% and 3.7 V. Hold it for 2 seconds to enter Fastboot |
-| Standby | suspend-to-idle | 🟡 Partial | Suspends after 15 idle minutes on battery; stays asleep after suspending and resumes normally on a timer wake; standby power consumption is not optimised yet |
+| Computer USB power | USB power path | 🟡 Partial | Draws 500 mA from the port; the battery gains charge while idle or asleep, and can still drop under heavy load |
+| Charging while powered off | Boot-stage charger mode | 🟡 Partial | Shows the battery level and charging trend. Press Power briefly to boot. Hold it for 2 seconds to enter Fastboot |
+| Standby | suspend-to-idle | 🟡 Partial | Suspends after 15 idle minutes, on battery and on a computer USB port, and keeps charging from a computer port while asleep; stays awake on a wall charger to keep fast charging; closing the cover on external power only locks the screen; after a background wake, suspends again soon while locked and idle; resumes normally on a timer wake; standby power consumption is not optimised yet |
 
 Not yet supported: hibernation to disk, writing the hardware clock (the clock is set from the network after boot; when starting offline it continues from the last shutdown).
 
@@ -110,7 +110,7 @@ Checks GitHub anonymously once a day for the latest release and notifies you whe
 
 Ubuntu packages are managed through APT. The project kernel and device components are updated together with the installation bundle: upgrade with a reinstall that keeps `/home`, see [Upgrading an installed system](docs/INSTALL-TESTING.en.md#upgrading-an-installed-system). Do not mix boot images and system components from different releases.
 
-**Developer mode.** `sudo liuqin-devmode on` enables root SSH login over the USB cable; it is off by default and accepts keys only. Installing with `--enable-rescue` provisions the host's public key. Connect from the host with `python3 tools/liuqin-devmode-ssh.py root`, and run `sudo liuqin-devmode off` when done.
+**Developer mode.** `sudo liuqin-devmode on` enables root SSH login over the USB cable; it is off by default and accepts keys only. Installing with `--enable-rescue` provisions the host's public key. While it is on, the tablet does not suspend automatically. Connect from the host with `python3 tools/liuqin-devmode-ssh.py root`, and run `sudo liuqin-devmode off` when done.
 
 To run Android applications inside Ubuntu, Waydroid is supported; the required kernel configuration is built in. See [Waydroid support](docs/WAYDROID.en.md).
 

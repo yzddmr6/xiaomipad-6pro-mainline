@@ -6,7 +6,7 @@
 # There is no console, timer or DHCP daemon here: systemd-networkd configures
 # the address and the one-host lease (50-liuqin-devmode.network) and
 # liuqin-devmode-ssh.socket accepts SSH logins.
-# usage: devmode-gadget start|stop    (run by liuqin-devmode.service)
+# usage: devmode-gadget serve|start|stop    (serve: liuqin-devmode.service)
 set -eu
 configfs=/sys/kernel/config/usb_gadget
 g=$configfs/liuqin-devmode
@@ -84,7 +84,14 @@ start() {
 }
 
 case "${1-}" in
+serve)
+	# Bind the gadget, report readiness and stay the service's process, so the
+	# systemd-inhibit lock that wraps this command lasts as long as the gadget.
+	start
+	NOTIFY_SOCKET="${2:?missing service notification socket}" systemd-notify --ready
+	exec /usr/bin/sleep infinity
+	;;
 start) start ;;
 stop) stop ;;
-*) echo 'usage: devmode-gadget start|stop' >&2; exit 2 ;;
+*) echo 'usage: devmode-gadget serve|start|stop' >&2; exit 2 ;;
 esac

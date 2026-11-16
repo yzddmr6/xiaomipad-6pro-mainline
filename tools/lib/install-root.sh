@@ -183,14 +183,6 @@ done
 # A home that cannot be kept is refused before anything is downloaded; the
 # check is repeated in the write window, together with e2fsck.
 [ -z "$keep_home" ] || check_home "$home"
-battery=
-for supply in /sys/class/power_supply/*; do
-	[ "$(cat "$supply/type" 2>/dev/null)" = Battery ] || continue
-	battery=$(cat "$supply/capacity")
-	break
-done
-case $battery in ''|*[!0-9]*) die 'battery level is unavailable' ;; esac
-[ "$battery" -ge 30 ] || die 'charge the tablet to at least 30 percent before installation'
 case $3 in *[!0-9a-f]*|'') die 'invalid rootfs hash' ;; esac
 [ "${#3}" = 64 ] || die 'invalid rootfs hash length'
 case $4 in ''|*[!0-9]*) die 'invalid archive size' ;; esac

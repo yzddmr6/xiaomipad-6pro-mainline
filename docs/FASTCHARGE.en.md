@@ -7,9 +7,10 @@ The Xiaomi Pad 6 Pro’s ADSP charger firmware negotiates voltage and current. O
 | MiPPS | Adapter passes Xiaomi’s UVDM handshake | Enables the Xiaomi high-voltage fast-charge path |
 | Standard PPS | Adapter does not pass the Xiaomi handshake and the negotiated PPS contract is ready | Enables the standard PPS high-voltage fast-charge path by default |
 | Plain PD | Fixed-voltage contract | Uses the negotiated fixed-voltage profile |
-| DCP, SDP | Conventional USB power | Firmware charges within the source’s capabilities |
+| DCP | Conventional USB charger | Firmware charges within the source’s capabilities |
+| SDP | Computer USB port | Draws 500 mA |
 
-The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. Computer USB ports supply only the power available from the port and cable. Battery charge can fall when system demand exceeds that input.
+The charging policy is the same with the screen on or off. Cell-temperature protection and the constant-voltage taper remain under firmware control. On a wall charger or another wired charger the system stays awake, so fast charging continues with the screen off; on a computer USB port it does not, and the tablet suspends after 15 idle minutes as usual. A computer USB port is drawn at 500 mA, which charges the battery while the tablet is idle or asleep. Battery charge can still fall when system demand exceeds that input.
 
 ## Validation status
 
@@ -56,13 +57,13 @@ on kernels without the interface.
 
 1. At boot, the battery service writes a random challenge to each fuel gauge through `verify_digest`, checks its HMAC-SHA256 response and sets `authentic` and `slave_authentic`. During adapter authentication the helper verifies any gauge that has yet to pass.
 2. The service waits for a PD contract. It proceeds when `real_type` is `PD` or `PD_PPS` and `current_state` is `SNK_Ready`. For PPS it also waits if `pdo2` still reads zero. Polling slows after the first 8 seconds. A late contract can still trigger authentication for as long as the same partner stays online.
-3. For adapters reporting Xiaomi’s SVID, the helper takes the Type-C host data role first. A failed role request stops that attempt before any adapter command is sent.
+3. For adapters reporting Xiaomi’s SVID, the helper takes the Type-C host data role first. A failed role request stops that attempt before any adapter command is sent. If the last attempt fails too, the helper allows standard PPS directly.
 4. Through `request_vdm_cmd`, the helper sends UVDM commands 1–3, a session seed (command 4) and a random challenge (command 5). Once it has an adapter ID, it follows the stock completion order, sending REMOVE_COMPENSATION (command 7) followed by VERIFIED (command 6). The original charger used this sequence in testing, skipping reverse authentication (command 8), which timed out on this hardware.
 5. The helper logs the Xiaomi handshake result as `pd_auth` and writes `pd_verifed` to tell the firmware whether to allow the high-voltage path. The firmware chooses the active charging mode according to battery level and temperature.
 
 The helper includes the keys used for the handshake.
 
-The service makes up to three attempts per round, waiting 1 second before the first retry and 2 seconds before the second. The journal records the failed step and reason. If a fixed PD contract does not enable the high-voltage path, the service waits for a switch to PPS and tries again on the same connection. A successful result can be reused only for the current attachment.
+For adapters reporting Xiaomi’s SVID, the service makes up to three attempts per round, waiting 1 second before the first retry and 2 seconds before the second. Other adapters are probed once and then allowed standard PPS. The journal records the failed step and reason. If a fixed PD contract does not enable the high-voltage path, the service waits for a switch to PPS and tries again on the same connection. A successful result can be reused only for the current attachment.
 
 A full run reports the sequence in the journal:
 
@@ -81,7 +82,7 @@ pd_verifed=1
 
 ### Data role
 
-The service requests the host role only when the partner reports Xiaomi’s `adapter_svid` (`0x2717`). Other partners keep their negotiated data role while the helper probes for Xiaomi authentication. The helper checks the attachment identity during the handshake. Unplugging or replacing the partner invalidates the previous result.
+The service requests the host role only when the partner reports Xiaomi’s `adapter_svid` (`0x2717`). Other partners keep their negotiated data role while the helper probes once for Xiaomi authentication. The helper checks the attachment identity during the handshake. Unplugging or replacing the partner invalidates the previous result.
 
 ## Standard PPS adapters
 
@@ -89,11 +90,15 @@ The service enables `--allow-unverified-adapter` by default. Even if a third-par
 
 Standard PPS also works with a 3 A cable. A compliant source advertises at most 3 A with a detachable 3 A cable. Before constructing a PPS request, the tablet firmware checks each Augmented Power Data Object (APDO) for its voltage range and maximum current. It skips any entry that cannot supply the requested voltage or current.
 
+## Status bar
+
+With wired power connected, the GNOME top bar shows the net battery charging power and the charging path: MiPPS, PPS, PD, QC or USB. Its menu lists the charger input (voltage, current and power, including both charge pumps during fast charging), net battery power, cell voltage, battery temperature, the time to full at the current rate, and “Staying awake to keep charging”: Yes on a wall charger, No on a computer port. With “Show on battery” switched on at the bottom of the menu, the discharge power is shown on battery as well.
+
 ## Charging records
 
-`tablet-charge-sample.timer` samples about once a minute while the system is awake. The sleep hook also records one sample before suspend and one after resume. During continuous battery use, the periodic log records only the offline boundary. Powered samples include the time, battery level and temperature, USB and battery voltage and current (µV and µA), firmware mode, authentication flags, pump bus voltage, both pump currents and the requested thermal level. Positive battery current means net charging. The connector temperature field `pump.connector_temp_decic` is in tenths of a degree Celsius. Unavailable measurements are recorded as `null`.
+`tablet-charge-sample.timer` samples about once a minute while the system is awake. The sleep hook also records one sample before suspend and one after resume. During continuous battery use, the periodic log records only the offline boundary. Powered samples include the time, battery level and temperature, USB and battery voltage and current (µV and µA), the charge counters `charge_counter` and `charge_now` (µAh), firmware mode, authentication flags, the helper’s verdict for the current partner (`pump.auth`: `mipps`, `pps` or `null`), pump bus voltage, both pump currents and the requested thermal level. Positive battery current means net charging. The connector temperature field `pump.connector_temp_decic` is in tenths of a degree Celsius. Unavailable measurements are recorded as `null`.
 
-Records are stored only on the tablet in `/var/lib/tablet-charge/` (mode 0700), one JSON object per line. The current file, `samples.jsonl`, rotates to `samples.1.jsonl` at about 4 MiB. Both files have mode 0600. To print one live sample to the terminal without appending to the log, run
+Records are stored only on the tablet in `/var/lib/tablet-charge/` (mode 0700), one JSON object per line. `tablet-charge-events.service` also records one sample when a charger is attached or removed and when the charger type changes. The current file, `samples.jsonl`, rotates at about 4 MiB and the latest eight archives (`samples.1.jsonl` to `samples.8.jsonl`) are kept, all with mode 0600. To print one live sample to the terminal without appending to the log, run
 
 ```sh
 /usr/libexec/tablet-charge-sample --stdout

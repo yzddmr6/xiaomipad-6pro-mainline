@@ -103,7 +103,7 @@ Android 的 OTA 会改写非活动槽并将其设为活动槽，而该槽保存�
 
 - Xiaomi Pad 6 Pro（liuqin），出厂分区表、4096 字节逻辑扇区，且 `userdata` 为最后一个分区；
   自定义分区布局会被拒绝。
-- Bootloader 已解锁，平板进入 Fastboot，电量至少 30%。
+- Bootloader 已解锁，平板进入 Fastboot。
 - Linux 主机、Python 3.11 或更新版本、Android platform-tools，以及正常的 USB 网络支持。
 - 个人文件已备份到平板以外；安装会清空整个 userdata，安装器不会备份个人文件。
 - 已准备适配本机、满足防回滚要求的原厂 Fastboot ROM，并明确如何恢复 Android。
@@ -337,7 +337,8 @@ sudo liuqin-devmode off
 ```
 
 用 `liuqin-devmode status` 查看状态；公钥位于平板的 `/etc/liuqin/devmode/authorized_keys`。开启后平板在
-USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。在主机的项目目录中连接：
+USB 网络上的地址是 `192.168.66.2`，主机由 DHCP 获得 `192.168.66.10`。开启期间平板不会自动挂起，SSH
+连接不会因空闲挂起中断。在主机的项目目录中连接：
 
 ```sh
 python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
@@ -370,4 +371,4 @@ Android 恢复路线仍待独立真机验证，不应将 Ubuntu 安装通过等�
 
 `--keep-home` 保留独立 `/home`，重建 Ubuntu 系统分区前只读提取普通用户（UID/GID 1000–59999）、系统组中的附加成员关系、AccountsService 用户资料与头像、NetworkManager 连接、蓝牙配对、时区和设备名称，并在新根恢复；正常情况下直接回到原登录界面。新根有同名或同 UID/GID 账户/组时，在格式化前停止，不覆盖系统账户。旧根缺失、不可读或账户格式异常时，安装器明确提示回退到首次设置，需要重新创建账号。指纹模板和凭据不迁移，仍需重新录入。
 
-本版完整包同时附带 `liuqin_boot_ubuntu-v0.3.zip`、`dualboot-tools.zip` 和公开指纹构建输入；正常使用指纹无需再安装单独应用。解压 `dualboot-tools.zip` 后可按本文命令获取、校验 KernelSU 上游组件并生成 Android boot。
+本版完整包同时附带 `liuqin_boot_ubuntu-v0.4.zip`、`dualboot-tools.zip` 和公开指纹构建输入；正常使用指纹无需再安装单独应用。解压 `dualboot-tools.zip` 后可按本文命令获取、校验 KernelSU 上游组件并生成 Android boot。

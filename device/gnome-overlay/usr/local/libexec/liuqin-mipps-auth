@@ -90,6 +90,10 @@ class UnsupportedChargerError(Exception):
     pass
 
 
+class HostRoleError(UnsupportedChargerError):
+    """The Type-C port did not take the host data role a Xiaomi handshake needs."""
+
+
 def find_xiaomi_dir():
     candidates = ["/sys/class/qcom-battery"]
     candidates += glob.glob("/sys/devices/platform/pmic-glink/*/xiaomi")
@@ -248,13 +252,6 @@ def current_string_value(root, name):
         return None
 
 
-def current_battery_capacity():
-    battery = find_power_supply("qcom-battmgr-bat", "battery")
-    if not battery:
-        return None
-    return current_int_value(battery, "capacity")
-
-
 def current_power_max_watts(root):
     path = os.path.join(root, "power_max")
     if not os.path.exists(path):
@@ -320,10 +317,8 @@ def charge_mode_body(mode, watts):
 
 
 def current_charge_profile(root, pd_auth):
-    capacity = current_battery_capacity()
-    if capacity is None or capacity >= 95:
-        return None
-
+    # The profile names the negotiated path at any charge level; the firmware
+    # alone decides how much power it draws near full.
     watts = current_power_max_watts(root)
     if not watts:
         return None
@@ -511,26 +506,33 @@ def clear_verdict(root):
     write_state_file(VERIFIED_STATE_FILE, "none")
 
 
-def role_first_prelude(root):
-    """Request host before UVDMs for a Xiaomi partner only."""
-    require_current_attach()
-
-    adapter_svid = current_adapter_svid(root)
-    if adapter_svid != XIAOMI_SVID:
-        shown = "unknown" if adapter_svid is None else f"0x{adapter_svid:04x}"
-        print(f"role_first=skipped_non_xiaomi adapter_svid={shown}")
-        return
-
+def ensure_fuel_gauges(root):
     # The fuel gauges must be authenticated before the charger handshake; the
     # boot unit normally does this already, so this repeats it only if the run
     # missed it (for example after a reboot without an adapter).
     if not (node_is_one(root, "authentic") and node_is_one(root, "slave_authentic")):
         enable_battery_auth(root)
 
+
+def role_first_prelude(root):
+    """Request host before UVDMs for a Xiaomi partner only.
+
+    Returns whether the partner announced the Xiaomi SVID.
+    """
+    require_current_attach()
+
+    adapter_svid = current_adapter_svid(root)
+    if adapter_svid != XIAOMI_SVID:
+        shown = "unknown" if adapter_svid is None else f"0x{adapter_svid:04x}"
+        print(f"role_first=skipped_non_xiaomi adapter_svid={shown}")
+        return False
+
+    ensure_fuel_gauges(root)
+
     require_current_attach()
     port = find_typec_port()
     if not port:
-        raise UnsupportedChargerError("no Type-C port for host role")
+        raise HostRoleError("no Type-C port for host role")
     role = read_node(port, "data_role")
 
     if "[host]" not in role:
@@ -545,10 +547,11 @@ def role_first_prelude(root):
         print(f"role_request=end returncode={returncode} role={role} "
               f"stderr={stderr}")
         if returncode or "[host]" not in role:
-            raise UnsupportedChargerError("host role request failed")
+            raise HostRoleError("host role request failed")
 
     require_current_attach()
     print("role_first=proceed")
+    return True
 
 
 def vdm_state(root):
@@ -805,11 +808,29 @@ def authenticate_attach(root, args):
         contract = wait_source_ready(root, previous_type)
         for attempt in range(1, attempts + 1):
             try:
-                role_first_prelude(root)
+                # Only a Xiaomi partner can answer the handshake: probe any
+                # other source once, then go straight to its standard PPS.
+                xiaomi = role_first_prelude(root)
                 args.no_data_role_swap = True
-                if authenticate(root, args, last_attempt=attempt == attempts):
+                if authenticate(root, args, last_attempt=attempt == attempts or not xiaomi):
                     return True
                 break
+            except HostRoleError as e:
+                print(f"auth_attempt={attempt}/{attempts} failed: {e}", file=sys.stderr)
+                require_current_attach()
+                if attempt == attempts:
+                    # Without the host role there is no Xiaomi handshake; the
+                    # adapter's standard PPS is the fastest path left.
+                    try:
+                        ensure_fuel_gauges(root)
+                    except (OSError, RuntimeError) as gauge_error:
+                        print(f"standard_pps=refused: {gauge_error}", file=sys.stderr)
+                        break
+                    if apply_verdict(root, args, pd_auth=False):
+                        return True
+                    break
+                time.sleep(2 ** (attempt - 1))
+                contract = wait_source_ready(root)
             except (UnsupportedChargerError, OSError, RuntimeError, ValueError) as e:
                 print(f"auth_attempt={attempt}/{attempts} failed: {e}", file=sys.stderr)
                 require_current_attach()
@@ -909,6 +930,11 @@ def authenticate(root, args, last_attempt):
     else:
         print("adapter_auth_result=skipped")
 
+    return apply_verdict(root, args, pd_auth)
+
+
+def apply_verdict(root, args, pd_auth):
+    """Tell the firmware whether this partner may use the high-voltage path."""
     require_current_attach()
     gate = False
     # pd_verifed is the firmware's gate on the high-voltage charge path and

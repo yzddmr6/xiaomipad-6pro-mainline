@@ -36,14 +36,21 @@ esac
   assert not (root/'tmp').exists()
  run(True)
  assert 'ro,noload' in (root/'operations').read_text()
- for kind in ('battery','memory','factory'):
+ # Installation never reads the charge: low, unreadable and absent levels proceed.
+ for level in ('1','0','bad',None):
   (root/'operations').unlink()
-  if kind=='battery': (battery/'capacity').write_text('29')
+  if level is None: shutil.rmtree(battery)
+  else: (battery/'capacity').write_text(level+'\n')
+  run(True)
+  assert 'ro,noload' in (root/'operations').read_text()
+ battery.mkdir(parents=True);(battery/'type').write_text('Battery\n');(battery/'capacity').write_text('90\n')
+ for kind in ('memory','factory'):
+  (root/'operations').unlink()
   if kind=='memory': (root/'proc/meminfo').write_text('MemAvailable: 100 kB\n')
   if kind=='factory': (persist/'audio/crus_calr.bin').write_bytes(b'bad')
   run(False)
   if kind!='factory': assert not (root/'operations').exists()
   else: assert 'umount' in (root/'operations').read_text()
-  (battery/'capacity').write_text('90');(root/'proc/meminfo').write_text('MemAvailable: 4000000 kB\n')
+  (root/'proc/meminfo').write_text('MemAvailable: 4000000 kB\n')
   if not (root/'operations').exists(): (root/'operations').touch()
-print('PASS: battery, memory and real factory-data parsing before persistent writes; read-only cleanup')
+print('PASS: installs at any or unreadable charge; memory and real factory-data parsing before persistent writes; read-only cleanup')

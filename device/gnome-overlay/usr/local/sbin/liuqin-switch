@@ -753,7 +753,6 @@ cmd_import_android() { # <image>
 }
 
 cmd_to_ubuntu() {
-	require_switch_battery
 	check_set ubuntu || die "no usable Ubuntu image in store/ubuntu; nothing was written"
 	require_slot_a
 	compute_live
@@ -800,13 +799,11 @@ cmd_to_android() {
 	require_slot_a
 	compute_live
 	if live_is_set android; then
-		# Recovery needs no partition or state-file write. Do not strand a
-		# discharged tablet in Linux after Android was already installed.
+		# Recovery needs no partition or state-file write.
 		say "$BOOT_LABEL already holds the Android image; nothing to write"
 		do_reboot
 		return $?
 	fi
-	require_switch_battery
 	check_set ubuntu ||
 		die 'store/ubuntu is unusable, so there would be no way back to Ubuntu; nothing was written'
 	case $LIVE_CLASS in

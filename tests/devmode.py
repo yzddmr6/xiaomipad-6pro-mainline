@@ -47,6 +47,24 @@ with tempfile.TemporaryDirectory() as directory:
     run('/usr/libexec/liuqin/devmode-gadget','start')
     run('/usr/libexec/liuqin/devmode-gadget','stop')
     assert not gadget.exists()
+    # The service keeps a blocking sleep inhibitor for the gadget's lifetime:
+    # systemd-inhibit runs `serve`, which binds, reports ready and stays.
+    unit=(overlay/'usr/lib/systemd/system/liuqin-devmode.service').read_text()
+    assert 'Type=notify\n' in unit and 'NotifyAccess=all\n' in unit and 'RemainAfterExit' not in unit
+    start_line=next(l for l in unit.splitlines() if l.startswith('ExecStart='))
+    assert start_line.startswith('ExecStart=/usr/bin/systemd-inhibit --what=sleep --mode=block ')
+    # systemd-inhibit drops NOTIFY_SOCKET for its child, so the unit passes it on.
+    assert start_line.endswith(' /usr/libexec/liuqin/devmode-gadget serve ${NOTIFY_SOCKET}')
+    script('bin/systemd-notify','echo "${NOTIFY_SOCKET-unset} $*" >>/notify')
+    script('usr/bin/sleep','echo "$*" >>/sleep')
+    run('/usr/libexec/liuqin/devmode-gadget','serve',ok=False)
+    assert not (root/'notify').exists()
+    run('/usr/libexec/liuqin/devmode-gadget','stop')
+    run('/usr/libexec/liuqin/devmode-gadget','serve','/run/systemd/notify')
+    assert (gadget/'UDC').read_text().strip()=='controller'
+    assert (root/'notify').read_text()=='/run/systemd/notify --ready\n' and (root/'sleep').read_text()=='infinity\n'
+    run('/usr/libexec/liuqin/devmode-gadget','stop')
+    assert not gadget.exists()
     other=root/'sys/kernel/config/usb_gadget/other';other.mkdir();(other/'UDC').write_text('controller\n')
     run('/usr/libexec/liuqin/devmode-gadget','start',ok=False)
     other.joinpath('UDC').write_text('')

@@ -6,8 +6,16 @@ import re
 import subprocess
 
 
+# Only liuqin-kernel boots. Every distribution kernel image, module, header and
+# tool package of any version or flavour, and their metapackages, is a leftover
+# (the workspace parity rule P-NO-GENERIC-KERNEL, as on the OnePlus root);
+# flavour-independent pieces such as linux-tools-common and linux-perf stay.
+DISTRO_KERNEL = re.compile(
+    r'linux-(?:image|image-unsigned|modules|modules-extra|main-modules-[a-z0-9]+|headers|tools|cloud-tools'
+    r'|buildinfo|lib-rust)-[0-9]\S*|linux-(?:(?:image|headers|tools)-)?(?:generic|lowlatency|virtual)(?:-\S+)?')
 def obsolete(name):
     return bool(re.match(r'linux-(?:generic(?:-|$)|image-|modules-|headers-|main-modules-zfs-)', name)
+                or DISTRO_KERNEL.fullmatch(name)
                 or name in ('kdump-tools', 'zfs-dkms', 'flash-kernel', 'initramfs-tools-core')
                 or name.startswith(('zfs-modules', 'dracut')))
 

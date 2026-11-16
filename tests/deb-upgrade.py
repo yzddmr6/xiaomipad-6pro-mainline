@@ -8,6 +8,8 @@ parser.add_argument('--root', type=Path, required=True, help='Immutable Ubuntu A
 parser.add_argument('--old-deb', type=Path, required=True)
 parser.add_argument('--new-deb', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True, help='New scratch directory')
+parser.add_argument('--dependency', type=Path, action='append', default=[],
+                    help='Distribution .deb the new package depends on (the test has no archive access)')
 args=parser.parse_args()
 base,old,new,work=(p.resolve() for p in (args.root,args.old_deb,args.new_deb,args.out))
 assert new.is_file()
@@ -30,17 +32,31 @@ try:
  policy=root/'usr/sbin/policy-rc.d';policy.write_text('#!/bin/sh\nexit 101\n');policy.chmod(0o755)
  (root/'run/deb-test').mkdir(parents=True)
  shutil.copyfile(old,root/'run/deb-test/old.deb');shutil.copyfile(new,root/'run/deb-test/new.deb')
+ for number,dependency in enumerate(args.dependency):shutil.copyfile(dependency,root/f'run/deb-test/dependency-{number}.deb')
  def guest(script):
   return run('chroot',str(root),'/bin/sh','-eux',input=script,text=True,env=dict(os.environ,QEMU_CPU='max,pauth-impdef=on'))
  guest('dpkg -i /run/deb-test/old.deb\n')
  # A real package upgrade, including the obsolete conffile and broken keyboard.
  drop=root/'etc/systemd/system/liuqin-mipps-auth.service.d/10-allow-unverified-adapter.conf'
- assert drop.is_file()
+ # 0.7.0 and later no longer ship the drop-in; an upgrade from 0.6.x must remove it.
+ had_drop=drop.is_file()
  (root/'etc/default/keyboard').write_text('XKBMODEL="pc105"\nXKBLAYOUT="default,us"\nXKBVARIANT=","\nXKBOPTIONS=""\n')
+ if args.dependency:guest('dpkg -i /run/deb-test/dependency-*.deb\n')
  guest('dpkg -i /run/deb-test/new.deb\ndpkg --audit\n')
- assert not drop.exists()
+ assert not drop.exists(),had_drop
  assert '--allow-unverified-adapter' in (root/'etc/systemd/system/liuqin-mipps-auth.service').read_text()
- guest('systemctl is-enabled tablet-charge-sample.timer\n')
+ guest('systemctl is-enabled tablet-charge-sample.timer\nsystemctl is-enabled tablet-charge-events.service\n')
+ # The shared charge policy: AC idle suspend, lid lock, idle helper and status bar.
+ guest("GSETTINGS_BACKEND=memory gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type | grep -qx \"'suspend'\"\n"
+       "GSETTINGS_BACKEND=memory gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout | grep -qx 900\n"
+       "GSETTINGS_BACKEND=memory gsettings get org.gnome.shell.extensions.tablet-charge show-on-battery | grep -qx false\n"
+       "systemd-analyze cat-config systemd/logind.conf | grep -x 'HandleLidSwitchExternalPower=lock'\n"
+       "python3 -c 'import pyudev, gi'\n"
+       "test -x /usr/libexec/tablet-charge-idle && test -x /usr/libexec/tablet-charge-display\n"
+       "test \"$(/usr/libexec/tablet-charge-display)\" = '{}'\n")
+ mode=json.loads((root/'usr/share/ubuntu/gnome-shell/modes/ubuntu.json').read_text())
+ assert 'charge-indicator@tablet-linux' in mode['enabledExtensions']
+ assert "sleep-inactive-ac-type" not in (root/'etc/dconf/db/local.d/00-liuqin').read_text()
  assert (root/'usr/share/tablet-charge/device').read_text() == 'liuqin\n'
  assert not (root/'usr/local/sbin/liuqin-rescue').exists()
  assert not (root/'usr/local/sbin/liuqin-gnome-usb-rescue').exists()
@@ -63,8 +79,8 @@ try:
  # dpkg's real glib schema trigger must make the shipped default effective.
  guest("GSETTINGS_BACKEND=memory gsettings get org.gnome.shell enabled-extensions | grep -F liuqin-osk-guard@io.github.liuqin\n")
  guest('/usr/bin/gnome-control-center --version\n')
- guest('systemd-analyze verify liuqin-physical-platform.service liuqin-mipps-auth.service liuqin-mipps-battery-auth.service tablet-charge-sample.timer tablet-charge-sample.service\n')
- print('PASS: actual ARM64 dpkg upgrade, default MiPPS policy, units, keyboard migration and diverted writers',flush=True)
+ guest('systemd-analyze verify liuqin-physical-platform.service liuqin-mipps-auth.service liuqin-mipps-battery-auth.service tablet-charge-sample.timer tablet-charge-sample.service tablet-charge-events.service liuqin-power-keyd.service\n')
+ print('PASS: actual ARM64 dpkg upgrade, default MiPPS policy, shared charge policy, units, keyboard migration and diverted writers',flush=True)
 finally:
  for path in reversed(mounted):run('umount',str(path))
  run('umount',str(root))

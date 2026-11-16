@@ -135,7 +135,6 @@ it active.
   logical sectors and `userdata` as the last partition. Modified partition
   layouts are rejected.
 - Unlocked bootloader and the device in Fastboot mode.
-- Battery at least 30 percent charged.
 - Linux host with Python 3.11 or newer, Android platform-tools and USB networking.
 - Personal files backed up outside the tablet. Installation erases all userdata.
 - A matching original Xiaomi Fastboot ROM and an Android recovery plan prepared
@@ -427,7 +426,8 @@ sudo liuqin-devmode off
 
 Check it with `liuqin-devmode status`; the keys are in `/etc/liuqin/devmode/authorized_keys` on the
 tablet. While enabled, the tablet uses `192.168.66.2` on the USB network and the host receives
-`192.168.66.10` by DHCP. Connect from the project directory on the host:
+`192.168.66.10` by DHCP, and it does not suspend automatically, so idle suspend cannot drop the SSH
+connection. Connect from the project directory on the host:
 
 ```sh
 python3 tools/liuqin-devmode-ssh.py --serial DEVICE_SERIAL root
@@ -467,4 +467,4 @@ On an existing supported split layout, `--no-backup` can replace `--backup PATH`
 
 `--keep-home` retains the separate `/home` filesystem. Before recreating the system partition, it reads the old root read-only and preserves ordinary accounts (UID/GID 1000–59999), supplementary system-group membership, AccountsService profiles/icons, NetworkManager connections, Bluetooth pairing, the time zone and the host name. A valid migration returns to the existing login screen. Name or UID/GID conflicts in the new root stop installation before formatting; system accounts are never overwritten. A missing, unreadable or malformed old root produces an explicit fallback message and requires first setup again. Fingerprint templates and credentials are not migrated; enroll fingerprints again after installation.
 
-The complete bundle also includes `liuqin_boot_ubuntu-v0.3.zip`, `dualboot-tools.zip` and the public fingerprint build input. Normal fingerprint use needs no separate application. Extract `dualboot-tools.zip` to use the documented pinned KernelSU download and Android boot patching commands.
+The complete bundle also includes `liuqin_boot_ubuntu-v0.4.zip`, `dualboot-tools.zip` and the public fingerprint build input. Normal fingerprint use needs no separate application. Extract `dualboot-tools.zip` to use the documented pinned KernelSU download and Android boot patching commands.

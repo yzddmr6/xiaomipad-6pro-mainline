@@ -13,7 +13,7 @@ jobs:
       - name: Test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --no-install-recommends -y gdisk busybox-static e2fsprogs bubblewrap openssh-server fake-hwclock
+          sudo apt-get install --no-install-recommends -y gdisk busybox-static e2fsprogs bubblewrap openssh-server fake-hwclock python3-gi python3-pyudev
       - name: Python and shell syntax
         run: |
           python3 - <<'PY'
@@ -51,6 +51,15 @@ jobs:
           sudo python3 tests/sensor-startup.py
       - name: MiPPS connection and authentication policy
         run: python3 tests/mipps-role-first.py
+      - name: Allow bubblewrap sandboxes
+        # Ubuntu 24.04 runners restrict unprivileged user namespaces through
+        # AppArmor; the charging entry-point tests run under bwrap.
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Charging status bar, idle policy and charger boot
+        working-directory: tests
+        run: python3 -m unittest test_charge_policy test_charger_mode
+      - name: Background-wake resuspend
+        run: python3 tests/power-key.py
       - name: Physical platform policy
         run: python3 tests/physical-platform.py
       - name: Boot-image pin ownership policy

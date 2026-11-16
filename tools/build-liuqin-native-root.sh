@@ -150,7 +150,7 @@ test -f /usr/share/applications/firefox.desktop
 # tells users to run.
 apt-get -c /tmp/liuqin-apt.conf install -y --no-install-recommends libqrtr1 libprotobuf-c1 \
 	gnome-snapshot libcamera-ipa gstreamer1.0-libcamera gstreamer1.0-libav gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
-	libcamera-tools v4l-utils openssh-server fake-hwclock >/dev/null
+	libcamera-tools v4l-utils openssh-server fake-hwclock python3-pyudev >/dev/null
 # Only the explicit USB developer-mode socket should listen in a fresh image.
 systemctl disable ssh.service ssh.socket
 # Host keys must be generated per tablet by liuqin-devmode check, never cloned.

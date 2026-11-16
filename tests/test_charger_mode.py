@@ -59,25 +59,30 @@ class Charger(unittest.TestCase):
     def actions(self):
         p=self.p/'actions'; return p.read_text().splitlines() if p.exists() else []
 
-    def test_short_press_fresh_charge_gate(self):
+    def test_short_press_boots_at_any_charge(self):
+        # Booting never waits for the charge level or the cell voltage.
         self.env['KEY_ACTION']='0'
-        for cap,volts,allowed in [('45','3800000',True),('39','3800000',False),
-                                  ('45','3699999',False),('NA','3800000',False),
-                                  ('45','NA',False),('101','3800000',False)]:
+        for cap,volts in [('45','3800000'),('39','3800000'),('1','3300000'),('0','NA'),
+                          ('45','3699999'),('NA','3800000'),('45','NA'),('101','3800000')]:
             with self.subTest(capacity=cap,voltage=volts):
                 (self.p/'actions').unlink(missing_ok=True)
                 (self.p/'bat/capacity').write_text(cap+'\n')
                 (self.p/'bat/voltage_now').write_text(volts+'\n')
                 result=self.run_charger()
-                self.assertEqual('exit normal' in self.actions(),allowed)
-                self.assertEqual(result['can_boot'], 'yes' if allowed else 'no')
+                self.assertIn('exit normal',self.actions())
+                self.assertEqual(result['can_boot'],'yes')
+        (self.p/'actions').unlink(missing_ok=True)
+        (self.p/'bat/capacity').unlink()
+        (self.p/'bat/voltage_now').unlink()
+        self.assertEqual(self.run_charger()['can_boot'],'yes')
+        self.assertIn('exit normal',self.actions())
         self.assertEqual((self.p/'backlight/brightness').read_text().strip(),'102')
         self.assertEqual((self.p/'backlight/bl_power').read_text().strip(),'0')
 
-    def test_charge_is_reread_after_key(self):
+    def test_charge_falling_during_key_still_boots(self):
         self.script('key','echo 2 > "$FIXTURE/bat/capacity"; exit 0')
         self.run_charger()
-        self.assertNotIn('exit normal',self.actions())
+        self.assertIn('exit normal',self.actions())
 
     def test_storage_failure_blocks_normal_and_usb(self):
         self.env.update(KEY_ACTION='0',UFS_RO='0')

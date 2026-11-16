@@ -1,6 +1,6 @@
 id=liuqin_boot_ubuntu
 name=Boot to Ubuntu (liuqin)
-version=v0.3
-versionCode=3
+version=v0.4
+versionCode=4
 author=xiaomipad-6pro-mainline
 description=One button that writes the mainline Ubuntu boot image into boot_a and restarts the tablet (both systems boot from slot A), and a boot-time guard that disables the Android system updater so that an OTA cannot rewrite slot B. Ships the switcher only; the boot images live on the Ubuntu root filesystem.
