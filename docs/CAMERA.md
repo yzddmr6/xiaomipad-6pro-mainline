@@ -68,6 +68,24 @@ sudo cat /sys/kernel/debug/pm_genpd/pm_genpd_summary | grep -Ei 'titan|ife'
 
 Snapshot 正在预览时不要运行 `cam -l` 或其他相机枚举：libcamera 枚举时会重置传感器的翻转控制，导致当前预览上下颠倒，直到重新打开「相机」。视频节点编号不固定，直接采集测试请用 `media-ctl -p`（来自 v4l-utils）查找 `msm_vfe0_video0`。
 
+### 验证 GPU 去马赛克
+
+关闭 Snapshot 后，运行 `cam -l` 确认后摄编号。以后摄编号为 1 为例：
+
+```sh
+LIBCAMERA_SOFTISP_MODE=gpu LIBCAMERA_LOG_LEVELS='*:INFO,Debayer:DEBUG' \
+  cam -c1 --capture=30
+```
+
+确认采集成功，并在日志里查找 `debayer_egl.cpp` 的初始化消息，以确认
+libcamera 使用了 EGL 后端。环境变量用于请求 GPU 处理，libcamera 构建需包含
+EGL 后端。
+
+贡献者在一台运行 Ubuntu 26.04 的小米平板 6 Pro 上，用 libcamera 0.7 和
+Mesa 26.0.8 验证了 Adreno 730 上的 EGL 去马赛克初始化。该设备的另一项
+录像测试中，后摄 720p 样本在 5 秒内录得 150 帧。GPU 去马赛克和 H.264 编码是
+两个阶段，录像数据来自贡献者设备上的相机配置。
+
 ## 排障
 
 - **找不到摄像头：** 检查模块是否加载（`lsmod | grep -E 's5kjn1|qcom_camss|camcc'`），并查看 `journalctl -k | grep -Ei 'camss|s5kjn1|cci'`。

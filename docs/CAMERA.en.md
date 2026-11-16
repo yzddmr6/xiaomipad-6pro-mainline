@@ -103,6 +103,27 @@ libcamera resets the sensor's flip controls during enumeration, which turns the
 active preview upside down until Camera is reopened. Video node numbers are not
 fixed; use `media-ctl -p` (from v4l-utils) to resolve `msm_vfe0_video0` for direct capture tests.
 
+### Checking GPU debayering
+
+With Snapshot closed, run `cam -l` and select the rear camera. For example,
+if it is camera 1:
+
+```sh
+LIBCAMERA_SOFTISP_MODE=gpu LIBCAMERA_LOG_LEVELS='*:INFO,Debayer:DEBUG' \
+  cam -c1 --capture=30
+```
+
+Check for a successful capture and initialization messages from
+`debayer_egl.cpp` to confirm that libcamera used the EGL backend. The
+environment variable requests GPU processing. The libcamera build must
+include the EGL backend.
+
+On a contributor's Xiaomi Pad 6 Pro running Ubuntu 26.04, libcamera 0.7 and
+Mesa 26.0.8 initialized the EGL debayer on Adreno 730. In a separate recording
+test on that device's camera setup, a rear-camera 720p clip contained
+150 frames in five seconds. GPU debayering and H.264 encoding are separate
+stages, and the recording measurement covers the contributor's setup.
+
 ## Troubleshooting
 
 - **No camera found:** check that the modules loaded
